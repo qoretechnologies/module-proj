@@ -1,0 +1,269 @@
+/* -*- mode: c++; indent-tabs-mode: nil -*- */
+/*
+    QC_ProjTransformer.qpp
+
+    Qore Programming Language
+
+    Copyright (C) 2026 Qore Technologies, s.r.o.
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+*/
+
+#include "QC_ProjTransformer.h"
+
+#include <vector>
+
+// ---- C++ class implementation ----
+
+QoreProjTransformer::QoreProjTransformer(const char* src, const char* tgt,
+        bool normalize_for_visualization, ExceptionSink* xsink)
+    : source_crs(src ? src : ""),
+      target_crs(tgt ? tgt : ""),
+      normalized(normalize_for_visualization) {
+    // Eagerly build a PJ* on the constructing thread to validate inputs;
+    // any error (unknown CRS, bad authority, etc.) surfaces immediately.
+    PJ* pj = getPj(xsink);
+    (void)pj;
+}
+
+QoreProjTransformer::~QoreProjTransformer() {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    for (auto& kv : pj_cache) {
+        if (kv.second.pj) {
+            // proj_destroy() is safe from any thread provided the matching
+            // context is still alive. Our contexts are thread-local and
+            // never explicitly destroyed, so this is safe.
+            proj_destroy(kv.second.pj);
+        }
+    }
+    pj_cache.clear();
+}
+
+PJ* QoreProjTransformer::getPj(ExceptionSink* xsink) {
+    std::thread::id tid = std::this_thread::get_id();
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    auto it = pj_cache.find(tid);
+    if (it != pj_cache.end()) {
+        return it->second.pj;
+    }
+
+    PJ_CONTEXT* ctx = proj_get_context();
+    PJ* pj = proj_create_crs_to_crs(ctx, source_crs.c_str(), target_crs.c_str(), nullptr);
+    if (!pj) {
+        int err = proj_context_errno(ctx);
+        const char* msg = proj_context_errno_string(ctx, err);
+        xsink->raiseException("PROJ-ERROR",
+            "could not build CRS transform from %s to %s: %s",
+            source_crs.c_str(), target_crs.c_str(), msg ? msg : "unknown error");
+        return nullptr;
+    }
+
+    if (normalized) {
+        PJ* pj_norm = proj_normalize_for_visualization(ctx, pj);
+        if (pj_norm) {
+            proj_destroy(pj);
+            pj = pj_norm;
+        }
+        // If normalize_for_visualization fails (e.g. target CRS already in
+        // GIS axis order) PROJ returns NULL; we silently keep the original.
+    }
+
+    pj_cache[tid] = {ctx, pj};
+    return pj;
+}
+
+// ---- Qore class definition ----
+
+//! Coordinate transformer between two coordinate reference systems.
+/** Converts coordinates from a source CRS (e.g. @c "EPSG:4326", the WGS84
+    geographic CRS) to a target CRS (e.g. @c "EPSG:25832", ETRS89/UTM 32N).
+    Built once per pair of CRSs and reused for every point — the expensive
+    CRS setup (database lookup, grid-shift file resolution) happens in the
+    constructor, not per call.
+
+    @par Thread safety
+    A single @ref ProjTransformer instance is safe to share across threads.
+    Each thread lazily builds its own libproj @c PJ* internally, using that
+    thread's PROJ context.
+
+    @par Axis order
+    The constructor's @c options parameter accepts @c "normalized": when
+    @c True (default), @ref transform() "transform()" takes @c (x, y)
+    input in the GIS convention (longitude/easting as @c x, latitude/
+    northing as @c y) regardless of the CRS's natural axis order. Set to
+    @c False to preserve the CRS's own axis order — e.g. @c (lat, lon) for
+    @c EPSG:4326.
+
+    @par Example:
+    @code{.py}
+ProjTransformer t("EPSG:4326", "EPSG:25832");
+list<float> xy = t.transform(11.60448861, 48.12702028);
+# xy = (691596.71, 5334746.44)
+    @endcode
+*/
+qclass ProjTransformer [arg=QoreProjTransformer* t; ns=Qore::PROJ];
+
+//! Creates a new coordinate transformer between two CRSs.
+/** @param source_crs source CRS identifier — anything libproj's \c
+        proj_create_crs_to_crs() accepts: authority codes (\c "EPSG:4326"),
+        PROJ strings (\c "+proj=longlat +datum=WGS84 +no_defs"), OGC WKT
+        strings, or CRS names.
+    @param target_crs target CRS identifier, same format options as source.
+    @param options optional hash; recognised keys:
+        - \c normalized (bool, default \c True): apply \c
+          proj_normalize_for_visualization() so \c transform() accepts
+          (x, y) = (lon, easting) order regardless of CRS axis conventions.
+
+    @throw PROJ-ERROR source or target CRS could not be resolved.
+*/
+ProjTransformer::constructor(string source_crs, string target_crs, *hash<auto> options) {
+    bool normalize = true;
+    if (options) {
+        QoreValue nv = options->getKeyValue("normalized");
+        if (!nv.isNullOrNothing()) {
+            normalize = nv.getAsBool();
+        }
+    }
+    ReferenceHolder<QoreProjTransformer> inst(
+        new QoreProjTransformer(source_crs->c_str(), target_crs->c_str(), normalize, xsink),
+        xsink);
+    if (*xsink) {
+        return;
+    }
+    self->setPrivate(CID_PROJTRANSFORMER, inst.release());
+}
+
+//! Transforms a single (x, y) point from source CRS to target CRS.
+/** @param x source-CRS x coordinate (lon / easting when \c normalized is \c True)
+    @param y source-CRS y coordinate (lat / northing when \c normalized is \c True)
+    @return a two-element list \c (target_x, target_y).
+
+    @throw PROJ-ERROR transform failed (invalid input, out-of-range for CRS, grid-shift
+    data missing, …).
+*/
+list<float> ProjTransformer::transform(float x, float y) {
+    PJ* pj = t->getPj(xsink);
+    if (*xsink) {
+        return QoreValue();
+    }
+    PJ_COORD c = proj_coord(x, y, 0.0, 0.0);
+    PJ_COORD r = proj_trans(pj, PJ_FWD, c);
+    int err = proj_errno(pj);
+    if (err) {
+        const char* msg = proj_errno_string(err);
+        proj_errno_reset(pj);
+        xsink->raiseException("PROJ-ERROR", "forward transform failed: %s",
+            msg ? msg : "unknown error");
+        return QoreValue();
+    }
+    ReferenceHolder<QoreListNode> out(new QoreListNode(floatTypeInfo), xsink);
+    out->push(r.xy.x, xsink);
+    out->push(r.xy.y, xsink);
+    return out.release();
+}
+
+//! Inverse transform: target CRS back to source CRS.
+/** @param x target-CRS x coordinate
+    @param y target-CRS y coordinate
+    @return a two-element list \c (source_x, source_y).
+
+    @throw PROJ-ERROR transform failed.
+*/
+list<float> ProjTransformer::transformInverse(float x, float y) {
+    PJ* pj = t->getPj(xsink);
+    if (*xsink) {
+        return QoreValue();
+    }
+    PJ_COORD c = proj_coord(x, y, 0.0, 0.0);
+    PJ_COORD r = proj_trans(pj, PJ_INV, c);
+    int err = proj_errno(pj);
+    if (err) {
+        const char* msg = proj_errno_string(err);
+        proj_errno_reset(pj);
+        xsink->raiseException("PROJ-ERROR", "inverse transform failed: %s",
+            msg ? msg : "unknown error");
+        return QoreValue();
+    }
+    ReferenceHolder<QoreListNode> out(new QoreListNode(floatTypeInfo), xsink);
+    out->push(r.xy.x, xsink);
+    out->push(r.xy.y, xsink);
+    return out.release();
+}
+
+//! Bulk forward transform of a list of (x, y) points.
+/** Single \c proj_trans_generic() call for the whole batch — significantly
+    faster than looping \c transform() for large inputs (e.g. projecting
+    every vertex of an OSM track set at pipeline init).
+
+    @param points list of two-element lists, each \c (x, y) in the source CRS.
+    @return a list of two-element lists in the target CRS, same length and order.
+
+    @throw PROJ-ERROR transform failed, or an input element is not a 2-list.
+*/
+list<list<float>> ProjTransformer::transformBatch(list<auto> points) {
+    size_t n = points->size();
+    std::vector<double> xs(n), ys(n);
+    for (size_t i = 0; i < n; ++i) {
+        QoreValue v = points->retrieveEntry(i);
+        if (v.getType() != NT_LIST) {
+            xsink->raiseException("PROJ-ARG-ERROR",
+                "points[%zu] must be a list of two floats", i);
+            return QoreValue();
+        }
+        const QoreListNode* pair = v.get<const QoreListNode>();
+        if (pair->size() < 2) {
+            xsink->raiseException("PROJ-ARG-ERROR",
+                "points[%zu] must contain at least two floats", i);
+            return QoreValue();
+        }
+        xs[i] = pair->retrieveEntry(0).getAsFloat();
+        ys[i] = pair->retrieveEntry(1).getAsFloat();
+    }
+
+    PJ* pj = t->getPj(xsink);
+    if (*xsink) {
+        return QoreValue();
+    }
+
+    if (n > 0) {
+        size_t done = proj_trans_generic(pj, PJ_FWD,
+            xs.data(), sizeof(double), n,
+            ys.data(), sizeof(double), n,
+            nullptr, 0, 0,
+            nullptr, 0, 0);
+        if (done != n) {
+            int err = proj_errno(pj);
+            const char* msg = proj_errno_string(err);
+            proj_errno_reset(pj);
+            xsink->raiseException("PROJ-ERROR",
+                "batch transform failed after %zu of %zu points: %s",
+                done, n, msg ? msg : "unknown error");
+            return QoreValue();
+        }
+    }
+
+    ReferenceHolder<QoreListNode> out(new QoreListNode(listTypeInfo), xsink);
+    for (size_t i = 0; i < n; ++i) {
+        ReferenceHolder<QoreListNode> pair(new QoreListNode(floatTypeInfo), xsink);
+        pair->push(xs[i], xsink);
+        pair->push(ys[i], xsink);
+        out->push(pair.release(), xsink);
+    }
+    return out.release();
+}

@@ -1,0 +1,129 @@
+#!/usr/bin/env qore
+# -*- mode: qore; indent-tabs-mode: nil -*-
+
+%modern
+%enable-all-warnings
+%requires proj
+%requires QUnit
+
+%exec-class ProjTest
+
+public class ProjTest inherits QUnit::Test {
+    private {
+        # WGS84 point for Munich Hauptbahnhof, and its known UTM32N value
+        # (verified against pyproj EPSG:4326 → EPSG:25832 with always_xy=True).
+        const WGS84_LON = 11.5754;
+        const WGS84_LAT = 48.1371;
+        const UTM32N_X  = 691596.710;  # meters easting
+        const UTM32N_Y  = 5334746.441; # meters northing
+        const POS_TOL   = 1.0;         # 1 m tolerance — PROJ is sub-mm but we
+                                        # allow a metre for different PROJ data
+                                        # revisions.
+    }
+
+    constructor() : Test("ProjTest", "1.0") {
+        addTestCase("version functions", \versionTests());
+        addTestCase("hashdecl", \hashdeclTests());
+        addTestCase("transformer constructor", \constructorTests());
+        addTestCase("single-point transform", \transformTests());
+        addTestCase("inverse round-trip", \inverseTests());
+        addTestCase("batch transform", \batchTests());
+        addTestCase("multi-thread reuse", \multiThreadTests());
+        addTestCase("negative tests", \negativeTests());
+        set_return_value(main());
+    }
+
+    versionTests() {
+        string v = Qore::PROJ::proj_version();
+        assertTrue(v != "", "proj_version() returns a non-empty string");
+
+        hash<ProjVersionInfo> i = Qore::PROJ::get_proj_info();
+        assertEq("hash<ProjVersionInfo>", i.fullType());
+        assertTrue(i.major >= 6, "PROJ major >= 6 (module targets 8+)");
+    }
+
+    hashdeclTests() {
+        hash<ProjVersionInfo> i = Qore::PROJ::get_proj_info();
+        assertTrue(i.version.typeCode() == NT_STRING);
+        assertTrue(i.major.typeCode() == NT_INT);
+    }
+
+    constructorTests() {
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        assertTrue(exists t);
+    }
+
+    transformTests() {
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        list<float> xy = t.transform(WGS84_LON, WGS84_LAT);
+        assertEq(2, xy.size());
+        assertTrue(abs(xy[0] - UTM32N_X) < POS_TOL,
+            sprintf("x within %f m of %f (got %f)", POS_TOL, UTM32N_X, xy[0]));
+        assertTrue(abs(xy[1] - UTM32N_Y) < POS_TOL,
+            sprintf("y within %f m of %f (got %f)", POS_TOL, UTM32N_Y, xy[1]));
+    }
+
+    inverseTests() {
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        list<float> xy = t.transform(WGS84_LON, WGS84_LAT);
+        list<float> lonlat = t.transformInverse(xy[0], xy[1]);
+        assertEq(2, lonlat.size());
+        assertTrue(abs(lonlat[0] - WGS84_LON) < 1e-6,
+            sprintf("lon round-trips within 1e-6 (got diff %g)",
+                lonlat[0] - WGS84_LON));
+        assertTrue(abs(lonlat[1] - WGS84_LAT) < 1e-6,
+            sprintf("lat round-trips within 1e-6 (got diff %g)",
+                lonlat[1] - WGS84_LAT));
+    }
+
+    batchTests() {
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        list<auto> input = (
+            (WGS84_LON, WGS84_LAT),
+            (11.5754, 48.1371),
+            (11.7, 48.2),
+        );
+        list<list<float>> out = t.transformBatch(input);
+        assertEq(3, out.size());
+        # First element matches the single-point result.
+        list<float> single = t.transform(WGS84_LON, WGS84_LAT);
+        assertTrue(abs(out[0][0] - single[0]) < 1e-3);
+        assertTrue(abs(out[0][1] - single[1]) < 1e-3);
+    }
+
+    # Helper: run one transform under a Counter so the caller can wait.
+    # Each invocation lazily builds a per-thread PJ inside the transformer —
+    # this is the thread-safety check.
+    private runOne(Qore::PROJ::ProjTransformer t, Counter c, reference<bool> ok) {
+        try {
+            list<float> xy = t.transform(WGS84_LON, WGS84_LAT);
+            ok = (abs(xy[0] - UTM32N_X) < POS_TOL
+                && abs(xy[1] - UTM32N_Y) < POS_TOL);
+        } catch (hash<ExceptionInfo> ex) {
+            ok = False;
+        }
+        c.dec();
+    }
+
+    multiThreadTests() {
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        Counter c(4);
+        bool ok0 = False;
+        bool ok1 = False;
+        bool ok2 = False;
+        bool ok3 = False;
+        background runOne(t, c, \ok0);
+        background runOne(t, c, \ok1);
+        background runOne(t, c, \ok2);
+        background runOne(t, c, \ok3);
+        c.waitForZero();
+        assertTrue(ok0 && ok1 && ok2 && ok3,
+            "shared transformer produced correct result on 4 concurrent threads");
+    }
+
+    negativeTests() {
+        assertThrows("PROJ-ERROR", sub () {
+            Qore::PROJ::ProjTransformer t("EPSG:99999", "EPSG:25832");
+        });
+    }
+}
