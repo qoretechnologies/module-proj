@@ -1,0 +1,43 @@
+Qore PROJ module (proj)
+
+INTRODUCTION
+------------
+The Qore proj module provides bindings to the PROJ coordinate
+transformation library (https://proj.org). PROJ converts coordinates
+between coordinate reference systems (CRS) — for example, from
+geographic WGS84 (EPSG:4326, degrees lat/lon) to a projected CRS such
+as ETRS89/UTM zone 32N (EPSG:25832, meters), which is required for
+any meaningful planar geometry.
+
+Natural companion to the Qore geos module: `geos` does planar geometry,
+`proj` gets the coordinates onto a plane in the first place.
+
+For more information about PROJ, see:
+    https://proj.org
+
+Thread safety: each thread lazily initialises its own PROJ context via
+proj_context_create(). PJ transformer objects are cached per-thread,
+so a single ProjTransformer instance can be shared across Qorus
+pipeline workers without manual coordination.
+
+Classes provided:
+    - ProjTransformer: Coordinate transformer between two CRSs.
+      Forward and inverse transforms for single points or batches.
+
+Standalone functions:
+    - proj_version(): Returns the PROJ version string.
+    - get_proj_info(): Returns a hash with parsed version components.
+
+DEPENDENCIES
+------------
+    - libproj >= 8.0 (PROJ 9.x recommended)
+
+BUILD
+-----
+    mkdir build && cd build
+    cmake ..
+    make
+    sudo make install
+
+Requires a Qore development installation (qore-config, qpp) and PROJ
+development files.
