@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.5)
 project(qore-proj-module)
 
 set(VERSION_MAJOR 1)
-set(VERSION_MINOR 0)
+set(VERSION_MINOR 1)
 set(VERSION_PATCH 0)
 
 # where to look first for cmake modules, before ${CMAKE_ROOT}/Modules/ is checked
@@ -23,6 +23,9 @@ else()
     set(PROJ_LIBRARY ${PROJ_LIBRARY})
 endif()
 
+# ensure qdx can find the proj binary module and user modules when processing .qc files
+set(QORE_MODULE_DIR_FOR_DOCS "${CMAKE_BINARY_DIR}:${CMAKE_SOURCE_DIR}/qlib")
+
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
 set(QPP_SRC
@@ -32,6 +35,10 @@ set(QPP_SRC
 
 set(CPP_SRC
     src/proj-module.cpp
+)
+
+set(QMOD
+    qlib/ProjGeos
 )
 
 # C++17 required
@@ -69,6 +76,10 @@ else()
     install(FILES ${QPP_META_SOURCES}
             DESTINATION ${CMAKE_INSTALL_DATADIR}/qore/metadata)
 endif()
+
+qore_user_modules("${QMOD}")
+
+qore_external_user_module("qlib/ProjGeos" "")
 
 qore_dist("${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
 

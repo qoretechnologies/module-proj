@@ -1,0 +1,149 @@
+# -*- mode: qore; indent-tabs-mode: nil -*-
+#! Qore ProjGeos module — proj + geos interop helpers.
+
+/*  ProjGeos.qm Copyright 2026 Qore Technologies, s.r.o.
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+*/
+
+%requires qore >= 2.0
+
+%requires(reexport) proj
+%requires(reexport) geos
+
+%new-style
+%strict-args
+%require-types
+%enable-all-warnings
+
+module ProjGeos {
+    version = "1.1";
+    desc = "proj <-> geos interop: transform GEOSGeometry coordinates via a ProjTransformer";
+    author = "Qore Technologies, s.r.o.";
+    url = "https://github.com/qoretechnologies/module-proj";
+    license = "MIT";
+}
+
+/** @mainpage ProjGeos Module
+
+    @tableofcontents
+
+    @section projgeosintro Introduction
+
+    The %ProjGeos module is a thin Qore-level helper that bridges the
+    @ref Qore::PROJ "proj" module's coordinate transforms with the
+    @ref Qore::GEOS "geos" module's geometry types.
+
+    @section projgeosapi API
+
+    One standalone function:
+    - @ref Qore::ProjGeos::transform_geometry() "transform_geometry()"
+
+    @section projgeosusage Usage
+
+    @code{.py}
+%requires ProjGeos
+
+Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+Qore::GEOS::GEOSGeometry wgs84_line = Qore::GEOS::parse_wkt(
+    "LINESTRING(11.60 48.13, 11.61 48.14, 11.62 48.15)");
+Qore::GEOS::GEOSGeometry utm_line = Qore::ProjGeos::transform_geometry(t, wgs84_line);
+    @endcode
+
+    @section projgeosperf Performance
+
+    Implemented on top of @ref Qore::GEOS::GEOSGeometry::transformXY()
+    "GEOSGeometry::transformXY()", which invokes the supplied callback
+    once per coordinate. For geometries in the thousands-of-vertices
+    range this is a cost-effective one-shot operation; for hot-path
+    per-message transforms, prefer extracting coordinates with
+    @ref Qore::GEOS::GEOSGeometry::getCoordinates() "getCoordinates()",
+    calling @ref Qore::PROJ::ProjTransformer::transformBatch()
+    "transformBatch()" once, and rebuilding the geometry in your own code.
+
+    @section projgeosrelease Release History
+
+    @subsection projgeos_1_1 ProjGeos Module Version 1.1
+    - initial release alongside proj 1.1
+*/
+
+public namespace ProjGeos {
+
+    #! Transforms every coordinate of a GEOS geometry via a ProjTransformer.
+    /** Walks the geometry with @ref Qore::GEOS::GEOSGeometry::transformXY()
+        "GEOSGeometry::transformXY()", invoking the transformer's forward
+        transform on each (x, y) vertex. The input geometry is not mutated;
+        a new @ref Qore::GEOS::GEOSGeometry "GEOSGeometry" is returned with
+        identical topology and the coordinates projected into the target CRS.
+
+        Works for any geometry type supported by @c transformXY: points,
+        linestrings, polygons (rings + holes), and their multi / collection
+        variants.
+
+        @par Example:
+        @code{.py}
+    Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+    Qore::GEOS::GEOSGeometry utm_geom = Qore::ProjGeos::transform_geometry(t, wgs84_geom);
+        @endcode
+
+        @param t a @ref Qore::PROJ::ProjTransformer "ProjTransformer" whose
+                 forward direction maps the geometry's current CRS to the
+                 target CRS
+        @param g a @ref Qore::GEOS::GEOSGeometry "GEOSGeometry" in the
+                 transformer's source CRS
+
+        @return a new @ref Qore::GEOS::GEOSGeometry "GEOSGeometry" in the
+                transformer's target CRS.
+
+        @throw PROJ-ERROR forward transform failed for some coordinate.
+        @throw GEOS-ERROR geometry could not be rebuilt from the transformed
+               coordinates.
+    */
+    public GEOSGeometry sub transform_geometry(ProjTransformer t, GEOSGeometry g) {
+        return g.transformXY(list<float> sub (float x, float y) {
+            return t.transform(x, y);
+        });
+    }
+
+    #! Transforms every coordinate via a ProjTransformer's INVERSE direction.
+    /** Mirror of @ref transform_geometry() that uses
+        @ref Qore::PROJ::ProjTransformer::transformInverse()
+        "transformInverse()". Useful when you hold a transformer built
+        source→target and want to back-project target-CRS geometry (e.g.
+        UTM → WGS84 for viewer output) without constructing a second
+        transformer.
+
+        @param t a @ref Qore::PROJ::ProjTransformer "ProjTransformer" whose
+                 source CRS is the desired *output* CRS for this call
+        @param g a @ref Qore::GEOS::GEOSGeometry "GEOSGeometry" in the
+                 transformer's TARGET CRS
+
+        @return a new @ref Qore::GEOS::GEOSGeometry "GEOSGeometry" in the
+                transformer's SOURCE CRS.
+
+        @throw PROJ-ERROR inverse transform failed for some coordinate.
+        @throw GEOS-ERROR geometry could not be rebuilt from the transformed
+               coordinates.
+    */
+    public GEOSGeometry sub transform_geometry_inverse(ProjTransformer t, GEOSGeometry g) {
+        return g.transformXY(list<float> sub (float x, float y) {
+            return t.transformInverse(x, y);
+        });
+    }
+}

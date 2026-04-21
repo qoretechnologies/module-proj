@@ -267,3 +267,66 @@ list<list<float>> ProjTransformer::transformBatch(list<auto> points) {
     }
     return out.release();
 }
+
+//! Bulk inverse transform: target CRS back to source CRS.
+/** Mirror of \ref transformBatch() in the inverse direction. Single
+    \c proj_trans_generic() call for the whole batch — used e.g. when
+    back-projecting a whole set of UTM snap points to WGS84 for map
+    display.
+
+    @param points list of two-element lists, each \c (x, y) in the target CRS.
+    @return a list of two-element lists in the source CRS, same length and order.
+
+    @throw PROJ-ERROR transform failed, or an input element is not a 2-list.
+*/
+list<list<float>> ProjTransformer::transformInverseBatch(list<auto> points) {
+    size_t n = points->size();
+    std::vector<double> xs(n), ys(n);
+    for (size_t i = 0; i < n; ++i) {
+        QoreValue v = points->retrieveEntry(i);
+        if (v.getType() != NT_LIST) {
+            xsink->raiseException("PROJ-ARG-ERROR",
+                "points[%zu] must be a list of two floats", i);
+            return QoreValue();
+        }
+        const QoreListNode* pair = v.get<const QoreListNode>();
+        if (pair->size() < 2) {
+            xsink->raiseException("PROJ-ARG-ERROR",
+                "points[%zu] must contain at least two floats", i);
+            return QoreValue();
+        }
+        xs[i] = pair->retrieveEntry(0).getAsFloat();
+        ys[i] = pair->retrieveEntry(1).getAsFloat();
+    }
+
+    PJ* pj = t->getPj(xsink);
+    if (*xsink) {
+        return QoreValue();
+    }
+
+    if (n > 0) {
+        size_t done = proj_trans_generic(pj, PJ_INV,
+            xs.data(), sizeof(double), n,
+            ys.data(), sizeof(double), n,
+            nullptr, 0, 0,
+            nullptr, 0, 0);
+        if (done != n) {
+            int err = proj_errno(pj);
+            const char* msg = proj_errno_string(err);
+            proj_errno_reset(pj);
+            xsink->raiseException("PROJ-ERROR",
+                "batch inverse transform failed after %zu of %zu points: %s",
+                done, n, msg ? msg : "unknown error");
+            return QoreValue();
+        }
+    }
+
+    ReferenceHolder<QoreListNode> out(new QoreListNode(listTypeInfo), xsink);
+    for (size_t i = 0; i < n; ++i) {
+        ReferenceHolder<QoreListNode> pair(new QoreListNode(floatTypeInfo), xsink);
+        pair->push(xs[i], xsink);
+        pair->push(ys[i], xsink);
+        out->push(pair.release(), xsink);
+    }
+    return out.release();
+}

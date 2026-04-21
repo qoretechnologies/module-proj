@@ -27,8 +27,43 @@
 
 #include "proj-module.h"
 
+#include <geodesic.h>
+
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
+
+namespace {
+
+// WGS84 geodesic — the default ellipsoid for every function in this file.
+// geod_geodesic is POD and cheap to stamp out, but initialising it once
+// per process is cheaper still. Thread-safe for read-only use after
+// geod_init().
+//
+// Built lazily on first use. Semi-major axis and inverse flattening are the
+// IUGG-endorsed WGS84 constants (same values GeographicLib hard-codes as
+// "WGS84").
+struct geod_geodesic& wgs84_geod() {
+    static struct geod_geodesic g = []() {
+        struct geod_geodesic local;
+        geod_init(&local, 6378137.0, 1.0 / 298.257223563);
+        return local;
+    }();
+    return g;
+}
+
+// Fold an azimuth in degrees into the canonical [-180, 180] range.
+// `fmod` on negative inputs can leave the result in [-360, 360]; the
+// +540 / -180 dance normalises without any branches.
+double normalize_azimuth(double deg) {
+    double r = std::fmod(deg + 540.0, 360.0);
+    if (r < 0.0) {
+        r += 360.0;
+    }
+    return r - 180.0;
+}
+
+}  // namespace
 
 //! PROJ version information hash
 /** Contains parsed version information for the PROJ library linked at
@@ -99,5 +134,92 @@ hash<ProjVersionInfo> get_proj_info() [flags=RET_VALUE_ONLY] {
     h->setKeyValue("minor", minor, xsink);
     h->setKeyValue("patch", patch, xsink);
     return h.release();
+}
+
+//! Great-circle (geodesic) distance between two WGS84 points, in meters.
+/** Solves the inverse geodesic problem on the WGS84 ellipsoid using
+    GeographicLib's C API (bundled with libproj). Accurate to sub-millimetre
+    across the entire globe, unlike the spherical haversine approximation
+    which drifts by up to ~0.5%.
+
+    @param lon1 longitude of point 1 in degrees
+    @param lat1 latitude of point 1 in degrees
+    @param lon2 longitude of point 2 in degrees
+    @param lat2 latitude of point 2 in degrees
+
+    @return geodesic distance in meters.
+
+    @par Example:
+    @code{.py}
+# Munich Hauptbahnhof to Berlin Hauptbahnhof
+float d = great_circle_distance(11.5581, 48.1402, 13.3696, 52.5251);
+# d ≈ 504476.9
+    @endcode
+
+    @note WGS84 ellipsoid is hardcoded. For other ellipsoids, use libproj's
+    @c proj_geod() via a @ref ProjTransformer built against the target
+    geographic CRS.
+*/
+float great_circle_distance(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT] {
+    double s12 = 0.0;
+    geod_inverse(&wgs84_geod(), lat1, lon1, lat2, lon2, &s12, nullptr, nullptr);
+    return s12;
+}
+
+//! Initial forward azimuth at point 1 on the WGS84 ellipsoid, in degrees.
+/** The bearing (clockwise from true north) at which a geodesic leaves
+    point 1 to reach point 2. Result is normalised to the range
+    @c [-180, 180].
+
+    @param lon1 longitude of point 1 in degrees
+    @param lat1 latitude of point 1 in degrees
+    @param lon2 longitude of point 2 in degrees
+    @param lat2 latitude of point 2 in degrees
+
+    @return forward azimuth at point 1 in degrees, in @c [-180, 180].
+
+    @par Example:
+    @code{.py}
+# Bearing from Munich toward Berlin — roughly NNE.
+float a = forward_azimuth(11.5581, 48.1402, 13.3696, 52.5251);
+# a ≈ 14.1
+    @endcode
+*/
+float forward_azimuth(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT] {
+    double azi1 = 0.0;
+    geod_inverse(&wgs84_geod(), lat1, lon1, lat2, lon2, nullptr, &azi1, nullptr);
+    return normalize_azimuth(azi1);
+}
+
+//! Back-azimuth at point 2 on the WGS84 ellipsoid, in degrees.
+/** The bearing from point 2 pointing *back* along the geodesic toward
+    point 1 — i.e., the direction to travel from 2 to retrace the
+    geodesic to 1. Result normalised to @c [-180, 180].
+
+    @param lon1 longitude of point 1 in degrees
+    @param lat1 latitude of point 1 in degrees
+    @param lon2 longitude of point 2 in degrees
+    @param lat2 latitude of point 2 in degrees
+
+    @return back-azimuth at point 2 in degrees, in @c [-180, 180].
+
+    @par Example:
+    @code{.py}
+# From Berlin back toward Munich — roughly SSW.
+float a = inverse_azimuth(11.5581, 48.1402, 13.3696, 52.5251);
+# a ≈ -164.5
+    @endcode
+
+    @note GeographicLib's @c geod_inverse() reports the @e forward azimuth
+    at point 2 (the direction the geodesic keeps going, not where it came
+    from). This function flips it by 180° so the return value is the
+    "pointing back at point 1" bearing most callers want.
+*/
+float inverse_azimuth(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT] {
+    double azi2 = 0.0;
+    geod_inverse(&wgs84_geod(), lat1, lon1, lat2, lon2, nullptr, nullptr, &azi2);
+    // geod_inverse returns the forward azimuth at point 2 — flip by 180°
+    // for the back-bearing most users want.
+    return normalize_azimuth(azi2 + 180.0);
 }
 ///@}

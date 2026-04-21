@@ -28,6 +28,18 @@
     Standalone functions:
     - @ref Qore::PROJ::proj_version() "proj_version()" — PROJ version string
     - @ref Qore::PROJ::get_proj_info() "get_proj_info()" — structured version info
+    - @ref Qore::PROJ::great_circle_distance() "great_circle_distance()" — geodesic distance on the WGS84 ellipsoid (metres)
+    - @ref Qore::PROJ::forward_azimuth() "forward_azimuth()" — initial bearing from point 1 toward point 2
+    - @ref Qore::PROJ::inverse_azimuth() "inverse_azimuth()" — back-bearing at point 2 toward point 1
+
+    Companion user module (shipped in the same repo):
+    - @ref ProjGeos "ProjGeos" — `transform_geometry()` and
+      `transform_geometry_inverse()` project every vertex of a
+      @c GEOSGeometry through a @ref Qore::PROJ::ProjTransformer
+      "ProjTransformer". Implemented on top of
+      @c GEOSGeometry::transformXY() so there is no C-level coupling
+      between @c module-proj and @c module-geos — load the user module
+      only when you need interop.
 
     @section projthread Thread safety
 
@@ -52,11 +64,31 @@ list<list<float>> xys = t.transformBatch(
     ((11.6, 48.1), (11.7, 48.2), (11.8, 48.3))
 );
 
-# Inverse transform.
+# Inverse transform (single + batch).
 list<float> lonlat = t.transformInverse(xy[0], xy[1]);
+list<list<float>> lonlats = t.transformInverseBatch(xys);
+
+# Geodesic helpers — WGS84 ellipsoid, no ProjTransformer needed.
+float d = great_circle_distance(11.5581, 48.1402, 13.3696, 52.5251);  # 504476.9
+float a = forward_azimuth(11.5581, 48.1402, 13.3696, 52.5251);        # 14.12
     @endcode
 
     @section projrelease proj Module Release History
+
+    @subsection proj_1_1 proj Module Version 1.1
+    - @ref Qore::PROJ::ProjTransformer::transformInverseBatch()
+      "transformInverseBatch()" — bulk inverse transform, symmetrical
+      with @c transformBatch().
+    - @ref Qore::PROJ::great_circle_distance() "great_circle_distance()",
+      @ref Qore::PROJ::forward_azimuth() "forward_azimuth()", and
+      @ref Qore::PROJ::inverse_azimuth() "inverse_azimuth()" — WGS84
+      geodesic helpers wrapping GeographicLib's C API (bundled with
+      libproj). Sub-millimetre accuracy globally; no @ref
+      Qore::PROJ::ProjTransformer "ProjTransformer" needed.
+    - New companion user module @ref ProjGeos "ProjGeos" — transforms
+      @c GEOSGeometry coordinates through a @ref
+      Qore::PROJ::ProjTransformer "ProjTransformer" without C-level
+      coupling between @c module-proj and @c module-geos.
 
     @subsection proj_1_0 proj Module Version 1.0
     - initial public release with @ref Qore::PROJ::ProjTransformer and
