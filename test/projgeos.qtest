@@ -18,11 +18,15 @@ public class ProjGeosTest inherits QUnit::Test {
         const POS_TOL   = 1.0;
     }
 
-    constructor() : Test("ProjGeosTest", "1.0") {
+    constructor() : Test("ProjGeosTest", "1.1") {
         addTestCase("forward point transform", \pointTests());
         addTestCase("linestring topology preservation", \lineTests());
         addTestCase("polygon with interior ring", \polygonTests());
         addTestCase("round-trip matches input to floor", \roundTripTests());
+        addTestCase("multi-geometry (GEOMETRYCOLLECTION)", \collectionTests());
+        addTestCase("empty geometries pass through unchanged", \emptyGeometryTests());
+        addTestCase("negative: bad coordinates in callback", \badCoordinateTests());
+        addTestCase("business scenario: geofence re-projection", \geofenceBusinessTests());
         set_return_value(main());
     }
 
@@ -93,6 +97,122 @@ public class ProjGeosTest inherits QUnit::Test {
                 sprintf("x[%d] round-trips (diff=%g)", i, back_c[i].x - in_c[i].x));
             assertTrue(abs(back_c[i].y - in_c[i].y) < 1e-9,
                 sprintf("y[%d] round-trips (diff=%g)", i, back_c[i].y - in_c[i].y));
+        }
+    }
+
+    collectionTests() {
+        # Collection mixing a point and a linestring: transformXY must walk
+        # every constituent geometry. Exercises the multi-geometry dispatch
+        # in GEOSGeometry.transformXY.
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        Qore::GEOS::GEOSGeometry wgs = parse(
+            "GEOMETRYCOLLECTION(POINT(11.5754 48.1371), LINESTRING(11.6 48.13, 11.61 48.14))");
+        Qore::GEOS::GEOSGeometry utm = ProjGeos::transform_geometry(t, wgs);
+        assertEq("GeometryCollection", utm.geometryType());
+        # Sub-geometry count preserved (1 point + 1 linestring = 2 parts).
+        assertEq(2, utm.numGeometries());
+        # Iterate parts — getCoordinates() only works on Point / LineString,
+        # so walk the collection rather than calling it on the whole thing.
+        Qore::GEOS::GEOSGeometry pt = utm.getGeometryN(0);
+        assertEq("Point", pt.geometryType());
+        hash<auto> coord = pt.getCoordinate();
+        assertTrue(coord.x > 500000.0 && coord.x < 900000.0,
+            sprintf("collection point x in UTM32N band (got %.1f)", coord.x));
+
+        Qore::GEOS::GEOSGeometry ls = utm.getGeometryN(1);
+        assertEq("LineString", ls.geometryType());
+        assertEq(2, ls.getCoordinates().size());
+    }
+
+    emptyGeometryTests() {
+        # An empty geometry has no vertices — transformXY should return an
+        # empty geometry of the same type without ever invoking the callback.
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        Qore::GEOS::GEOSGeometry empty_line = parse("LINESTRING EMPTY");
+        Qore::GEOS::GEOSGeometry out = ProjGeos::transform_geometry(t, empty_line);
+        assertEq("LineString", out.geometryType());
+        assertTrue(out.isEmpty(), "empty linestring stays empty through transform");
+
+        Qore::GEOS::GEOSGeometry empty_poly = parse("POLYGON EMPTY");
+        Qore::GEOS::GEOSGeometry out_poly = ProjGeos::transform_geometry(t, empty_poly);
+        assertEq("Polygon", out_poly.geometryType());
+        assertTrue(out_poly.isEmpty(), "empty polygon stays empty through transform");
+    }
+
+    badCoordinateTests() {
+        # Feeding the module a geometry from the wrong hemisphere for the
+        # target UTM zone must NOT produce an uncaught crash and must NOT
+        # corrupt the callback/transformer state. PROJ's actual response
+        # varies by version (some raise, some return HUGE_VAL, some clamp),
+        # so we just verify three invariants:
+        #   1. The call either succeeds or raises a PROJ-* / GEOS-* error.
+        #   2. If it raises, Qore catches it cleanly.
+        #   3. After the test, a subsequent normal transform still works
+        #      on the same transformer — the per-thread PJ cache wasn't
+        #      poisoned by the error.
+        Qore::PROJ::ProjTransformer utm32("EPSG:4326", "EPSG:25832");
+        Qore::GEOS::GEOSGeometry antarctic_pt = parse("POINT(0.0 -89.0)");
+
+        bool raised = False;
+        try {
+            ProjGeos::transform_geometry(utm32, antarctic_pt);
+        } catch (hash<ExceptionInfo> ex) {
+            raised = True;
+            assertTrue(ex.err =~ /^PROJ-/ || ex.err =~ /^GEOS-/,
+                sprintf("expected PROJ-* or GEOS-* error, got %s", ex.err));
+        }
+
+        # Whether it raised or not, the transformer must remain usable.
+        Qore::GEOS::GEOSGeometry munich = parse(
+            sprintf("POINT(%f %f)", WGS84_LON, WGS84_LAT));
+        Qore::GEOS::GEOSGeometry munich_utm = ProjGeos::transform_geometry(utm32, munich);
+        hash<auto> c = munich_utm.getCoordinate();
+        assertTrue(abs(c.x - UTM32N_X) < POS_TOL,
+            "transformer still produces correct results after out-of-domain input");
+    }
+
+    # --------------- business-scenario integration ---------------
+
+    geofenceBusinessTests() {
+        # Business scenario: a customer is uploading geofences (polygons in
+        # WGS84) that define service areas in Bavaria. Pipeline must:
+        #   1. Project each polygon to UTM32N so planar buffer / area
+        #      operations produce metric results.
+        #   2. Compute the service area in m².
+        #   3. Round-trip back to WGS84 for storage.
+        #
+        # Validates the full ProjGeos workflow end-to-end: forward
+        # transform_geometry, metric GEOS operations on the output, inverse
+        # transform_geometry back to the input CRS.
+
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+
+        # 1km-ish box around Munich Hbf.
+        Qore::GEOS::GEOSGeometry fence_wgs = parse(
+            "POLYGON((11.555 48.130, 11.575 48.130, 11.575 48.150, "
+                    "11.555 48.150, 11.555 48.130))");
+        Qore::GEOS::GEOSGeometry fence_utm = ProjGeos::transform_geometry(t, fence_wgs);
+
+        # Planar area on UTM32N: the box is ~0.02° wide × ~0.02° tall at
+        # latitude 48, which is ~1.5 km × ~2.2 km, so ~3.3 km² = ~3.3e6 m².
+        float area_m2 = fence_utm.area();
+        assertTrue(area_m2 > 2000000.0 && area_m2 < 5000000.0,
+            sprintf("Munich fence area in [2, 5] km² (got %.1f m²)", area_m2));
+
+        # Round-trip to WGS84 and confirm every vertex matches the original.
+        # Polygons don't support getCoordinates() directly — walk the
+        # exterior ring instead (our fence has no holes).
+        Qore::GEOS::GEOSGeometry fence_back = ProjGeos::transform_geometry_inverse(t, fence_utm);
+        list<hash<auto>> orig = fence_wgs.getExteriorRing().getCoordinates();
+        list<hash<auto>> back = fence_back.getExteriorRing().getCoordinates();
+        assertEq(orig.size(), back.size());
+        for (int i = 0; i < orig.size(); ++i) {
+            assertTrue(abs(back[i].x - orig[i].x) < 1e-9,
+                sprintf("fence vertex[%d].x round-trips (diff=%g)",
+                    i, back[i].x - orig[i].x));
+            assertTrue(abs(back[i].y - orig[i].y) < 1e-9,
+                sprintf("fence vertex[%d].y round-trips (diff=%g)",
+                    i, back[i].y - orig[i].y));
         }
     }
 }

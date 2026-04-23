@@ -21,20 +21,46 @@ public class ProjTest inherits QUnit::Test {
                                         # revisions.
     }
 
-    constructor() : Test("ProjTest", "1.0") {
+    constructor() : Test("ProjTest", "1.1") {
+        # Unit tests — version / metadata
         addTestCase("version functions", \versionTests());
         addTestCase("hashdecl", \hashdeclTests());
+
+        # Unit tests — ProjTransformer core
         addTestCase("transformer constructor", \constructorTests());
         addTestCase("single-point transform", \transformTests());
         addTestCase("inverse round-trip", \inverseTests());
         addTestCase("batch transform", \batchTests());
         addTestCase("batch inverse round-trip", \batchInverseTests());
+        addTestCase("same-CRS transformer is an identity", \sameCrsIdentityTests());
+
+        # Unit tests — geodesic helpers
         addTestCase("great-circle distance (WGS84)", \distanceTests());
         addTestCase("forward / inverse azimuths", \azimuthTests());
-        addTestCase("multi-thread reuse", \multiThreadTests());
-        addTestCase("negative tests", \negativeTests());
+
+        # Corner cases
+        addTestCase("batch edge cases (empty, singleton, large)", \batchEdgeCaseTests());
+        addTestCase("geodesic edge cases (poles, antipodes, wrap)", \geodesicEdgeCaseTests());
+
+        # Negative tests
+        addTestCase("negative: bad CRS codes", \badCrsTests());
+        addTestCase("negative: malformed batch inputs", \badBatchTests());
+        addTestCase("negative: NaN / Inf inputs are rejected or propagated as NaN",
+            \nanInfTests());
+
+        # Concurrency
+        addTestCase("multi-thread reuse (basic)", \multiThreadTests());
+        addTestCase("multi-thread stress (8 threads × 50 transforms)",
+            \multiThreadStressTests());
+
+        # End-to-end business scenario
+        addTestCase("business scenario: logistics distance matrix in UTM",
+            \logisticsBusinessTests());
+
         set_return_value(main());
     }
+
+    # --------------- version / metadata ---------------
 
     versionTests() {
         string v = Qore::PROJ::proj_version();
@@ -50,6 +76,8 @@ public class ProjTest inherits QUnit::Test {
         assertTrue(i.version.typeCode() == NT_STRING);
         assertTrue(i.major.typeCode() == NT_INT);
     }
+
+    # --------------- ProjTransformer core ---------------
 
     constructorTests() {
         Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
@@ -113,11 +141,26 @@ public class ProjTest inherits QUnit::Test {
             assertTrue(abs(back[i][1] - input[i][1]) < 1e-9,
                 sprintf("lat[%d] round-trips: diff=%g", i, back[i][1] - input[i][1]));
         }
-        # Empty batch is a valid input and returns an empty list without calling
-        # into libproj — guards against a regression where n==0 still tries to
-        # dereference a zero-length buffer.
-        assertEq((), t.transformInverseBatch(()));
     }
+
+    sameCrsIdentityTests() {
+        # Identity transform: same source and target CRS must preserve the
+        # coordinate to floating-point precision. PROJ recognises this as a
+        # no-op internally.
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:4326");
+        list<float> xy = t.transform(WGS84_LON, WGS84_LAT);
+        assertTrue(abs(xy[0] - WGS84_LON) < 1e-12);
+        assertTrue(abs(xy[1] - WGS84_LAT) < 1e-12);
+
+        # Same for the batch path.
+        list<list<float>> out = t.transformBatch(((1.0, 2.0), (3.0, 4.0)));
+        assertEq(1.0, out[0][0]);
+        assertEq(2.0, out[0][1]);
+        assertEq(3.0, out[1][0]);
+        assertEq(4.0, out[1][1]);
+    }
+
+    # --------------- geodesic helpers ---------------
 
     distanceTests() {
         # Ground truth: Vincenty / GeographicLib reference value for
@@ -163,6 +206,146 @@ public class ProjTest inherits QUnit::Test {
         assertTrue(inv >= -180.0 && inv <= 180.0);
     }
 
+    # --------------- corner cases ---------------
+
+    batchEdgeCaseTests() {
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+
+        # Empty batch is a valid input and returns an empty list without
+        # calling into libproj — guards against a regression where n==0 still
+        # tries to dereference a zero-length buffer.
+        assertEq((), t.transformBatch(()));
+        assertEq((), t.transformInverseBatch(()));
+
+        # Singleton batch behaves the same as the single-point API.
+        list<list<float>> one = t.transformBatch(((WGS84_LON, WGS84_LAT),));
+        assertEq(1, one.size());
+        list<float> single = t.transform(WGS84_LON, WGS84_LAT);
+        assertTrue(abs(one[0][0] - single[0]) < 1e-6);
+        assertTrue(abs(one[0][1] - single[1]) < 1e-6);
+
+        # A larger batch (10 000 points) to exercise the path that would care
+        # about cooperative cancellation in a future release. Stays under a
+        # couple of hundred milliseconds on any modern box — don't bump the
+        # size much further or CI timing becomes flaky.
+        list<auto> big = ();
+        for (int i = 0; i < 10000; ++i) {
+            push big, (11.0 + (i % 100) * 0.001, 48.0 + (i / 100) * 0.001);
+        }
+        list<list<float>> big_out = t.transformBatch(big);
+        assertEq(10000, big_out.size());
+        # Spot-check: round-trip one arbitrary entry through the inverse batch.
+        list<list<float>> big_back = t.transformInverseBatch(big_out);
+        assertTrue(abs(big_back[7777][0] - big[7777][0]) < 1e-9);
+        assertTrue(abs(big_back[7777][1] - big[7777][1]) < 1e-9);
+    }
+
+    geodesicEdgeCaseTests() {
+        # Antipodal-ish: ~180° apart. GeographicLib's solver is designed to
+        # converge here, but the distance should be close to half the WGS84
+        # equatorial circumference (≈ 20 003 km).
+        float antipodal = Qore::PROJ::great_circle_distance(
+            0.0, 0.0, 179.9, 0.0);
+        assertTrue(antipodal > 19999000.0 && antipodal < 20010000.0,
+            sprintf("near-antipodal distance ~20 003 km (got %.0f m)", antipodal));
+
+        # True pole-to-pole: 90°N to 90°S on the prime meridian.
+        # Exact WGS84 pole-to-pole distance is ~20 003.93 km.
+        float polar = Qore::PROJ::great_circle_distance(0.0, 90.0, 0.0, -90.0);
+        assertTrue(polar > 20000000.0 && polar < 20010000.0,
+            sprintf("pole-to-pole distance in [20 000 km, 20 010 km] (got %.0f m)", polar));
+
+        # Longitude wrap: 179.5°E to -179.5°W is 1° apart across the
+        # antimeridian, not 359° the other way round.
+        float wrap = Qore::PROJ::great_circle_distance(179.5, 0.0, -179.5, 0.0);
+        assertTrue(wrap > 100000.0 && wrap < 120000.0,
+            sprintf("antimeridian wrap distance ~111 km (got %.0f m)", wrap));
+
+        # Azimuth at the pole is degenerate — every direction is "south" from
+        # 90°N — but the function must not crash. Accept any finite value in
+        # [-180, 180].
+        float az_pole = Qore::PROJ::forward_azimuth(0.0, 90.0, 10.0, 89.0);
+        assertTrue(az_pole >= -180.0 && az_pole <= 180.0);
+    }
+
+    # --------------- negative tests ---------------
+
+    badCrsTests() {
+        # Unknown EPSG code.
+        assertThrows("PROJ-ERROR", sub () {
+            Qore::PROJ::ProjTransformer t("EPSG:99999", "EPSG:25832");
+        });
+
+        # Malformed proj-string (completely invalid).
+        assertThrows("PROJ-ERROR", sub () {
+            Qore::PROJ::ProjTransformer t("+proj=not-a-real-projection", "EPSG:4326");
+        });
+
+        # Empty source CRS.
+        assertThrows("PROJ-ERROR", sub () {
+            Qore::PROJ::ProjTransformer t("", "EPSG:4326");
+        });
+
+        # Empty target CRS.
+        assertThrows("PROJ-ERROR", sub () {
+            Qore::PROJ::ProjTransformer t("EPSG:4326", "");
+        });
+    }
+
+    badBatchTests() {
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+
+        # Non-list element in the batch.
+        assertThrows("PROJ-ARG-ERROR", sub () {
+            t.transformBatch(((1.0, 2.0), "not a list", (3.0, 4.0)));
+        });
+
+        # List element with fewer than 2 entries.
+        assertThrows("PROJ-ARG-ERROR", sub () {
+            t.transformBatch(((1.0, 2.0), (3.0,), (5.0, 6.0)));
+        });
+
+        # Inverse batch: same coverage.
+        assertThrows("PROJ-ARG-ERROR", sub () {
+            t.transformInverseBatch(((1.0,),));
+        });
+        assertThrows("PROJ-ARG-ERROR", sub () {
+            t.transformInverseBatch((42,));
+        });
+    }
+
+    # Helper: true iff x is not a finite double (NaN or ±Inf).
+    # NaN detected via the IEEE 754 property x != x; Inf via magnitude.
+    private bool notFinite(float x) {
+        return x != x || abs(x) > 1e300;
+    }
+
+    nanInfTests() {
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        # PROJ returns the platform's HUGE_VAL (≈ inf) for coordinates outside
+        # the projection's valid domain. The module does not validate inputs
+        # up-front — we accept either a thrown PROJ-ERROR or a NaN/Inf in the
+        # output. What must NOT happen is a crash or a silently-wrong finite
+        # result.
+        try {
+            list<float> out = t.transform(@nan@, 48.0);
+            assertTrue(notFinite(out[0]),
+                "NaN input must not produce a finite output");
+        } catch (hash<ExceptionInfo> ex) {
+            assertEq("PROJ-ERROR", ex.err);
+        }
+
+        try {
+            list<float> out = t.transform(@inf@, 48.0);
+            assertTrue(notFinite(out[0]),
+                "Inf input must not produce a finite output");
+        } catch (hash<ExceptionInfo> ex) {
+            assertEq("PROJ-ERROR", ex.err);
+        }
+    }
+
+    # --------------- concurrency ---------------
+
     # Helper: run one transform under a Counter so the caller can wait.
     # Each invocation lazily builds a per-thread PJ inside the transformer —
     # this is the thread-safety check.
@@ -193,9 +376,110 @@ public class ProjTest inherits QUnit::Test {
             "shared transformer produced correct result on 4 concurrent threads");
     }
 
-    negativeTests() {
-        assertThrows("PROJ-ERROR", sub () {
-            Qore::PROJ::ProjTransformer t("EPSG:99999", "EPSG:25832");
-        });
+    # Helper: run N transforms back-to-back, accumulating errors.
+    private runBurst(Qore::PROJ::ProjTransformer t, int n,
+            Counter c, reference<int> failures) {
+        int fail = 0;
+        for (int i = 0; i < n; ++i) {
+            try {
+                list<float> xy = t.transform(WGS84_LON, WGS84_LAT);
+                if (!(abs(xy[0] - UTM32N_X) < POS_TOL
+                        && abs(xy[1] - UTM32N_Y) < POS_TOL)) {
+                    ++fail;
+                }
+            } catch (hash<ExceptionInfo> ex) {
+                ++fail;
+            }
+        }
+        failures = fail;
+        c.dec();
+    }
+
+    multiThreadStressTests() {
+        # 8 threads × 50 transforms on a shared transformer. Exercises the
+        # per-thread PJ cache under real contention — any race in the cache
+        # insertion path tends to surface as either a crash or a failed
+        # transform.
+        Qore::PROJ::ProjTransformer t("EPSG:4326", "EPSG:25832");
+        int THREADS = 8;
+        int PER_THREAD = 50;
+        Counter c(THREADS);
+        list<int> failures = ();
+        for (int i = 0; i < THREADS; ++i) {
+            failures += 0;
+        }
+        for (int i = 0; i < THREADS; ++i) {
+            background runBurst(t, PER_THREAD, c, \failures[i]);
+        }
+        c.waitForZero();
+        int total_failures = 0;
+        foreach int f in (failures) {
+            total_failures += f;
+        }
+        assertEq(0, total_failures,
+            sprintf("stress run: %d total failures across %d threads × %d ops",
+                total_failures, THREADS, PER_THREAD));
+    }
+
+    # --------------- business-scenario integration ---------------
+
+    logisticsBusinessTests() {
+        # Business scenario: a dispatcher has a list of WGS84 delivery stops
+        # and needs a pairwise *planar* distance matrix (for a Dijkstra-style
+        # routing algorithm that only works on metric coordinates). The
+        # canonical approach is:
+        #   1. Project every stop from WGS84 to a local UTM zone.
+        #   2. Compute planar (Euclidean) distances on the UTM plane.
+        #   3. Cross-check against geodesic distances to make sure the
+        #      projection isn't distorting things at our scale (a few km).
+        #
+        # This test exercises: transformBatch, transformInverseBatch, the
+        # great_circle_distance helper, and the overall round-trip story.
+
+        # Five stops within the Munich metropolitan area — all inside UTM32N.
+        list<list<float>> stops_wgs = (
+            (11.5581, 48.1402),  # Munich Hauptbahnhof
+            (11.5754, 48.1371),  # Marienplatz
+            (11.6158, 48.1372),  # Ostbahnhof
+            (11.5427, 48.1750),  # Olympiazentrum
+            (11.6866, 48.3537),  # Freising (airport-ish)
+        );
+
+        Qore::PROJ::ProjTransformer utm32("EPSG:4326", "EPSG:25832");
+        list<list<float>> stops_utm = utm32.transformBatch(stops_wgs);
+        assertEq(stops_wgs.size(), stops_utm.size());
+
+        # Build the planar distance matrix and cross-check each entry against
+        # great_circle_distance. Within a single UTM zone at this scale, the
+        # planar and geodesic answers agree to well under 0.5% — so a 1%
+        # tolerance catches any real bug (wrong CRS, dropped coordinate) but
+        # doesn't flag the expected small projection distortion.
+        for (int i = 0; i < stops_utm.size(); ++i) {
+            for (int j = i + 1; j < stops_utm.size(); ++j) {
+                float dx = stops_utm[i][0] - stops_utm[j][0];
+                float dy = stops_utm[i][1] - stops_utm[j][1];
+                float planar = sqrt(dx * dx + dy * dy);
+                float geodesic = Qore::PROJ::great_circle_distance(
+                    stops_wgs[i][0], stops_wgs[i][1],
+                    stops_wgs[j][0], stops_wgs[j][1]);
+                float rel_err = abs(planar - geodesic) / geodesic;
+                assertTrue(rel_err < 0.01,
+                    sprintf("stop %d<->%d: planar %.1f m vs geodesic %.1f m "
+                        "(rel err %.4f)", i, j, planar, geodesic, rel_err));
+            }
+        }
+
+        # Back-project the UTM stops to WGS84 and confirm the full round-trip
+        # matches the input to floating-point precision. This is the step a
+        # real pipeline would do before emitting results back to a map viewer.
+        list<list<float>> stops_back = utm32.transformInverseBatch(stops_utm);
+        for (int i = 0; i < stops_wgs.size(); ++i) {
+            assertTrue(abs(stops_back[i][0] - stops_wgs[i][0]) < 1e-9,
+                sprintf("stop[%d] lon round-trip: diff=%g",
+                    i, stops_back[i][0] - stops_wgs[i][0]));
+            assertTrue(abs(stops_back[i][1] - stops_wgs[i][1]) < 1e-9,
+                sprintf("stop[%d] lat round-trip: diff=%g",
+                    i, stops_back[i][1] - stops_wgs[i][1]));
+        }
     }
 }
