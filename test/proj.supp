@@ -98,7 +98,58 @@
 }
 
 # --- libproj false positives ---
-# Add libproj-specific suppressions here if / when valgrind reports issues
-# that are known false positives in the PROJ library itself. PROJ opens
-# proj.db (SQLite) at context creation; any SQLite pthread-init leaks fall
-# in this bucket.
+#
+# libproj (PROJ) loads proj.db via libsqlite3 at context creation and caches
+# CRS / datum / grid metadata until process exit. Our module intentionally
+# does not call proj_context_destroy() on thread shutdown — see the comment
+# in src/proj-module.cpp where tl_proj_ctx is declared — so these allocations
+# surface as "definitely / possibly lost" under valgrind. The leaks are
+# fixed-size, bounded by the number of worker threads, and released by the
+# OS at process exit. Suppress anything terminating in libproj.
+
+{
+   proj-ctx-leak-any
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect,possible,reachable
+   ...
+   fun:*pj_ctx*
+}
+
+{
+   proj-database-context-leak-any
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect,possible,reachable
+   ...
+   fun:*DatabaseContext*create*
+}
+
+{
+   proj-obj-leak-any
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect,possible,reachable
+   ...
+   obj:*/libproj.so*
+}
+
+# --- libsqlite3 false positives (used internally by libproj) ---
+#
+# PROJ uses SQLite to read proj.db and keeps prepared-statement / connection
+# state in thread-local memory. libsqlite3 allocations that are reachable
+# only from libproj's internal handles show up as leaks; suppress anything
+# terminating in libsqlite3.
+
+{
+   proj-sqlite-leak-any
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect,possible,reachable
+   ...
+   obj:*/libsqlite3.so*
+}
+
+{
+   proj-sqlite-fn-leak-any
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect,possible,reachable
+   ...
+   fun:sqlite3_*
+}
