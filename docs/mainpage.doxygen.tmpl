@@ -73,24 +73,151 @@ float d = great_circle_distance(11.5581, 48.1402, 13.3696, 52.5251);  # 504476.9
 float a = forward_azimuth(11.5581, 48.1402, 13.3696, 52.5251);        # 14.12
     @endcode
 
-    @section projrelease proj Module Release History
+    @section projbusinessusecases Business use cases
 
-    @subsection proj_1_1 proj Module Version 1.1
-    - @ref Qore::PROJ::ProjTransformer::transformInverseBatch()
-      "transformInverseBatch()" — bulk inverse transform, symmetrical
-      with @c transformBatch().
-    - @ref Qore::PROJ::great_circle_distance() "great_circle_distance()",
-      @ref Qore::PROJ::forward_azimuth() "forward_azimuth()", and
-      @ref Qore::PROJ::inverse_azimuth() "inverse_azimuth()" — WGS84
-      geodesic helpers wrapping GeographicLib's C API (bundled with
-      libproj). Sub-millimetre accuracy globally; no @ref
-      Qore::PROJ::ProjTransformer "ProjTransformer" needed.
-    - New companion user module @ref ProjGeos "ProjGeos" — transforms
-      @c GEOSGeometry coordinates through a @ref
-      Qore::PROJ::ProjTransformer "ProjTransformer" without C-level
-      coupling between @c module-proj and @c module-geos.
+    The PROJ module is built around a small set of typical back-office
+    workflows. Each example below is self-contained and illustrates a
+    scenario that regularly shows up in Qorus integrations.
 
-    @subsection proj_1_0 proj Module Version 1.0
-    - initial public release with @ref Qore::PROJ::ProjTransformer and
-      version-info helpers
+    @subsection projucdistance Use case 1: logistics — distance matrix for a route planner
+
+    Problem: a dispatcher uploads a list of delivery stops in WGS84
+    (lon / lat degrees). A Dijkstra-style routing algorithm needs a
+    pairwise *planar* distance matrix in metres. Degrees are not a
+    valid unit for Euclidean distance, so stops must first be projected
+    into a metric CRS (UTM zone covering the service region).
+
+    @code{.py}
+%requires proj
+
+Qore::PROJ::ProjTransformer utm32("EPSG:4326", "EPSG:25832");
+
+# Delivery stops: (lon, lat) in WGS84.
+list<list<float>> stops_wgs = (
+    (11.5581, 48.1402),  # Munich Hauptbahnhof
+    (11.5754, 48.1371),  # Marienplatz
+    (11.6158, 48.1372),  # Ostbahnhof
+    (11.5427, 48.1750),  # Olympiazentrum
+    (11.6866, 48.3537),  # Freising (airport)
+);
+
+# One PROJ call projects the whole list; cheaper than N single-point calls.
+list<list<float>> stops_utm = utm32.transformBatch(stops_wgs);
+
+# Build the planar distance matrix on UTM coordinates (metres).
+int n = stops_utm.size();
+list<list<float>> dist = ();
+for (int i = 0; i < n; ++i) {
+    list<float> row = ();
+    for (int j = 0; j < n; ++j) {
+        float dx = stops_utm[i][0] - stops_utm[j][0];
+        float dy = stops_utm[i][1] - stops_utm[j][1];
+        row += sqrt(dx * dx + dy * dy);
+    }
+    dist += row;
+}
+# dist[i][j] is now the straight-line distance in metres, ready for
+# consumption by any metric-space routing algorithm.
+    @endcode
+
+    @subsection projucgeofence Use case 2: service-area geofencing — polygon re-projection
+
+    Problem: a customer uploads a service-area polygon in WGS84
+    (e.g. drawn in a web map). Billing needs the polygon's area in
+    square metres, and downstream storage wants the polygon back in
+    WGS84 (so that a map viewer can render it). GEOS area() returns a
+    unit-less number in the polygon's own coordinate system, so the
+    polygon must be on a metric plane first.
+
+    @code{.py}
+%requires ProjGeos  # pulls in proj + geos
+
+Qore::PROJ::ProjTransformer utm32("EPSG:4326", "EPSG:25832");
+
+Qore::GEOS::GEOSWKTReader reader();
+Qore::GEOS::GEOSGeometry fence_wgs = reader.read(
+    "POLYGON((11.555 48.130, 11.575 48.130, "
+            "11.575 48.150, 11.555 48.150, 11.555 48.130))");
+
+# Project every vertex to UTM32N, including interior rings (holes).
+Qore::GEOS::GEOSGeometry fence_utm = ProjGeos::transform_geometry(utm32, fence_wgs);
+float area_m2 = fence_utm.area();  # ~3.3e6 m² for a ~1.5 x 2.2 km box
+
+# Back-project to WGS84 for storage / display.
+Qore::GEOS::GEOSGeometry fence_back =
+    ProjGeos::transform_geometry_inverse(utm32, fence_utm);
+    @endcode
+
+    @subsection projucaddress Use case 3: address normalisation — regional CRS dispatch
+
+    Problem: a customer-onboarding pipeline ingests coordinates from
+    partners who each submit data in their own national grid (British
+    Ordnance Survey for UK clients, ETRS89/UTM for EU clients, State
+    Plane for US clients). The pipeline normalises everything to WGS84
+    for centralised storage. Each partner feed carries the source EPSG
+    code; one @c ProjTransformer per unique source suffices because
+    they can be cached and safely shared across worker threads.
+
+    @code{.py}
+%requires proj
+
+# Cache one transformer per source CRS we ever see. Thread-safe.
+hash<string, Qore::PROJ::ProjTransformer> cache;
+
+Qore::PROJ::ProjTransformer get_to_wgs84(string source_epsg) {
+    if (!exists cache{source_epsg}) {
+        cache{source_epsg} = new Qore::PROJ::ProjTransformer(source_epsg, "EPSG:4326");
+    }
+    return cache{source_epsg};
+}
+
+# Normalise a single partner record to WGS84 regardless of source grid.
+list<float> normalise(string source_epsg, float x, float y) {
+    return get_to_wgs84(source_epsg).transform(x, y);
+}
+
+# Partner A: British Ordnance Survey grid (EPSG:27700)
+list<float> london = normalise("EPSG:27700", 530000.0, 180000.0);
+
+# Partner B: EU ETRS89/UTM32N (EPSG:25832)
+list<float> munich = normalise("EPSG:25832", 691596.7, 5334746.4);
+
+# Partner C: WGS84 already — round-tripped through an identity transformer.
+list<float> berlin = normalise("EPSG:4326", 13.37, 52.52);
+    @endcode
+
+    @subsection projucgeodesic Use case 4: geodesic helpers — sanity-check planar results
+
+    Problem: a routing team wants to be sure that projecting onto UTM
+    before computing distances isn't introducing unacceptable error
+    for cross-zone trips. The geodesic helpers compute the
+    "true" (Vincenty-ellipsoidal) distance on WGS84 directly — no
+    @ref Qore::PROJ::ProjTransformer "ProjTransformer" needed — so
+    they're ideal as a reference to cross-check UTM-based answers.
+
+    @code{.py}
+%requires proj
+
+# True geodesic distance on the WGS84 ellipsoid (sub-millimetre accurate).
+float d = great_circle_distance(11.5581, 48.1402, 13.3696, 52.5251);  # 504 476.9 m
+
+# Initial bearing at the origin.
+float bearing = forward_azimuth(11.5581, 48.1402, 13.3696, 52.5251);  # ~14.1°
+
+# Back-bearing at the destination — pointing toward the origin.
+float back = inverse_azimuth(11.5581, 48.1402, 13.3696, 52.5251);     # ~-165°
+
+# Cross-check a UTM planar distance against the geodesic answer.
+Qore::PROJ::ProjTransformer utm32("EPSG:4326", "EPSG:25832");
+list<list<float>> p = utm32.transformBatch(
+    ((11.5581, 48.1402), (13.3696, 52.5251)));
+float dx = p[0][0] - p[1][0], dy = p[0][1] - p[1][1];
+float planar = sqrt(dx * dx + dy * dy);
+# planar and d should agree within ~0.5% for a trip inside one UTM zone;
+# larger divergence means we've crossed outside the zone's valid extent.
+    @endcode
+
+    @section projrelease Release History
+
+    See @subpage projreleasenotes for the full per-version changelog.
 */

@@ -1,0 +1,23 @@
+/** @page projreleasenotes proj Module Release History
+
+    @tableofcontents
+
+    @section proj_1_1 proj Module Version 1.1
+    - @ref Qore::PROJ::ProjTransformer::transformInverseBatch()
+      "transformInverseBatch()" — bulk inverse transform, symmetrical
+      with @c transformBatch().
+    - @ref Qore::PROJ::great_circle_distance() "great_circle_distance()",
+      @ref Qore::PROJ::forward_azimuth() "forward_azimuth()", and
+      @ref Qore::PROJ::inverse_azimuth() "inverse_azimuth()" — WGS84
+      geodesic helpers wrapping GeographicLib's C API (bundled with
+      libproj). Sub-millimetre accuracy globally; no @ref
+      Qore::PROJ::ProjTransformer "ProjTransformer" needed.
+    - New companion user module @ref ProjGeos "ProjGeos" — transforms
+      @c GEOSGeometry coordinates through a @ref
+      Qore::PROJ::ProjTransformer "ProjTransformer" without C-level
+      coupling between @c module-proj and @c module-geos.
+
+    @section proj_1_0 proj Module Version 1.0
+    - initial public release with @ref Qore::PROJ::ProjTransformer and
+      version-info helpers
+*/

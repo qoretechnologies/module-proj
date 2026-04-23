@@ -27,10 +27,7 @@
 %requires(reexport) proj
 %requires(reexport) geos
 
-%new-style
-%strict-args
-%require-types
-%enable-all-warnings
+%modern
 
 module ProjGeos {
     version = "1.1";

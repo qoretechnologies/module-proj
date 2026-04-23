@@ -56,6 +56,7 @@ set(module_name "proj")
 
 set(QORE_DOX_TMPL_SRC
     docs/mainpage.doxygen.tmpl
+    docs/release-notes.doxygen.tmpl
 )
 
 add_library(${module_name} MODULE ${CPP_SRC} ${QPP_SOURCES})
@@ -89,4 +90,8 @@ if(DOXYGEN_FOUND)
     qore_wrap_dox(QORE_DOX_SRC ${QORE_DOX_TMPL_SRC})
     add_custom_target(QORE_MOD_DOX_FILES DEPENDS ${QORE_DOX_SRC})
     add_dependencies(docs-module QORE_MOD_DOX_FILES)
+
+    # Two-phase doc build so the binary module's mainpage can @ref into
+    # the ProjGeos user sub-module's symbols.
+    qore_binary_module_two_phase_docs(${module_name} "ProjGeos")
 endif()
