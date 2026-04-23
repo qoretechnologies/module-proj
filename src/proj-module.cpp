@@ -57,6 +57,13 @@ static thread_local PJ_CONTEXT* tl_proj_ctx = nullptr;
 PJ_CONTEXT* proj_get_context() {
     if (!tl_proj_ctx) {
         tl_proj_ctx = proj_context_create();
+        // Explicitly disable on-demand CDN grid downloads. PROJ 7+ honours
+        // the PROJ_NETWORK env var and a global default toggled at build
+        // time; in a sandboxed Qore program that's an SSRF surface, so pin
+        // it off per-context regardless of environment.
+        if (tl_proj_ctx) {
+            proj_context_set_enable_network(tl_proj_ctx, 0);
+        }
     }
     return tl_proj_ctx;
 }

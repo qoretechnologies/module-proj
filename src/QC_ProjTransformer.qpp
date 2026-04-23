@@ -29,6 +29,15 @@
 
 #include <vector>
 
+// Chunk size for proj_trans_generic() in batch operations. libproj has no
+// async-cancel hook, so cancellation latency in batch transforms is bounded
+// by the time to process one chunk. 4096 points per chunk keeps per-chunk
+// wall time well under the 500ms cooperative-cancellation poll interval on
+// any modern CPU even for expensive CRS pairs.
+static constexpr size_t PROJ_BATCH_CHUNK = 4096;
+// Cancellation check every N iterations in marshalling/packing loops.
+static constexpr size_t PROJ_CHECK_EVERY = 1000;
+
 // ---- C++ class implementation ----
 
 QoreProjTransformer::QoreProjTransformer(const char* src, const char* tgt,
@@ -61,6 +70,12 @@ PJ* QoreProjTransformer::getPj(ExceptionSink* xsink) {
     auto it = pj_cache.find(tid);
     if (it != pj_cache.end()) {
         return it->second.pj;
+    }
+
+    // First-time build on this thread is the expensive path — proj.db +
+    // grid-shift file lookups. Pre-check cancellation before entering it.
+    if (qore_check_cancel(xsink, "ProjTransformer CRS setup")) {
+        return nullptr;
     }
 
     PJ_CONTEXT* ctx = proj_get_context();
@@ -133,6 +148,9 @@ qclass ProjTransformer [arg=QoreProjTransformer* t; ns=Qore::PROJ];
     @throw PROJ-ERROR source or target CRS could not be resolved.
 */
 ProjTransformer::constructor(string source_crs, string target_crs, *hash<auto> options) {
+    if (qore_check_cancel(xsink, "ProjTransformer constructor")) {
+        return;
+    }
     bool normalize = true;
     if (options) {
         QoreValue nv = options->getKeyValue("normalized");
@@ -158,6 +176,9 @@ ProjTransformer::constructor(string source_crs, string target_crs, *hash<auto> o
     data missing, …).
 */
 list<float> ProjTransformer::transform(float x, float y) {
+    if (qore_check_cancel(xsink, "ProjTransformer::transform")) {
+        return QoreValue();
+    }
     PJ* pj = t->getPj(xsink);
     if (*xsink) {
         return QoreValue();
@@ -186,6 +207,9 @@ list<float> ProjTransformer::transform(float x, float y) {
     @throw PROJ-ERROR transform failed.
 */
 list<float> ProjTransformer::transformInverse(float x, float y) {
+    if (qore_check_cancel(xsink, "ProjTransformer::transformInverse")) {
+        return QoreValue();
+    }
     PJ* pj = t->getPj(xsink);
     if (*xsink) {
         return QoreValue();
@@ -217,9 +241,16 @@ list<float> ProjTransformer::transformInverse(float x, float y) {
     @throw PROJ-ERROR transform failed, or an input element is not a 2-list.
 */
 list<list<float>> ProjTransformer::transformBatch(list<auto> points) {
+    if (qore_check_cancel(xsink, "ProjTransformer::transformBatch")) {
+        return QoreValue();
+    }
     size_t n = points->size();
     std::vector<double> xs(n), ys(n);
     for (size_t i = 0; i < n; ++i) {
+        if ((i % PROJ_CHECK_EVERY) == 0 && i > 0
+                && qore_check_cancel(xsink, "ProjTransformer::transformBatch input")) {
+            return QoreValue();
+        }
         QoreValue v = points->retrieveEntry(i);
         if (v.getType() != NT_LIST) {
             xsink->raiseException("PROJ-ARG-ERROR",
@@ -241,25 +272,35 @@ list<list<float>> ProjTransformer::transformBatch(list<auto> points) {
         return QoreValue();
     }
 
-    if (n > 0) {
+    // Process in chunks so cancellation latency in large batches is bounded
+    // by one PROJ_BATCH_CHUNK-sized proj_trans_generic() call.
+    for (size_t off = 0; off < n; off += PROJ_BATCH_CHUNK) {
+        if (off > 0 && qore_check_cancel(xsink, "ProjTransformer::transformBatch")) {
+            return QoreValue();
+        }
+        size_t chunk = (n - off < PROJ_BATCH_CHUNK) ? (n - off) : PROJ_BATCH_CHUNK;
         size_t done = proj_trans_generic(pj, PJ_FWD,
-            xs.data(), sizeof(double), n,
-            ys.data(), sizeof(double), n,
+            xs.data() + off, sizeof(double), chunk,
+            ys.data() + off, sizeof(double), chunk,
             nullptr, 0, 0,
             nullptr, 0, 0);
-        if (done != n) {
+        if (done != chunk) {
             int err = proj_errno(pj);
             const char* msg = proj_errno_string(err);
             proj_errno_reset(pj);
             xsink->raiseException("PROJ-ERROR",
                 "batch transform failed after %zu of %zu points: %s",
-                done, n, msg ? msg : "unknown error");
+                off + done, n, msg ? msg : "unknown error");
             return QoreValue();
         }
     }
 
     ReferenceHolder<QoreListNode> out(new QoreListNode(listTypeInfo), xsink);
     for (size_t i = 0; i < n; ++i) {
+        if ((i % PROJ_CHECK_EVERY) == 0 && i > 0
+                && qore_check_cancel(xsink, "ProjTransformer::transformBatch output")) {
+            return QoreValue();
+        }
         ReferenceHolder<QoreListNode> pair(new QoreListNode(floatTypeInfo), xsink);
         pair->push(xs[i], xsink);
         pair->push(ys[i], xsink);
@@ -280,9 +321,16 @@ list<list<float>> ProjTransformer::transformBatch(list<auto> points) {
     @throw PROJ-ERROR transform failed, or an input element is not a 2-list.
 */
 list<list<float>> ProjTransformer::transformInverseBatch(list<auto> points) {
+    if (qore_check_cancel(xsink, "ProjTransformer::transformInverseBatch")) {
+        return QoreValue();
+    }
     size_t n = points->size();
     std::vector<double> xs(n), ys(n);
     for (size_t i = 0; i < n; ++i) {
+        if ((i % PROJ_CHECK_EVERY) == 0 && i > 0
+                && qore_check_cancel(xsink, "ProjTransformer::transformInverseBatch input")) {
+            return QoreValue();
+        }
         QoreValue v = points->retrieveEntry(i);
         if (v.getType() != NT_LIST) {
             xsink->raiseException("PROJ-ARG-ERROR",
@@ -304,25 +352,33 @@ list<list<float>> ProjTransformer::transformInverseBatch(list<auto> points) {
         return QoreValue();
     }
 
-    if (n > 0) {
+    for (size_t off = 0; off < n; off += PROJ_BATCH_CHUNK) {
+        if (off > 0 && qore_check_cancel(xsink, "ProjTransformer::transformInverseBatch")) {
+            return QoreValue();
+        }
+        size_t chunk = (n - off < PROJ_BATCH_CHUNK) ? (n - off) : PROJ_BATCH_CHUNK;
         size_t done = proj_trans_generic(pj, PJ_INV,
-            xs.data(), sizeof(double), n,
-            ys.data(), sizeof(double), n,
+            xs.data() + off, sizeof(double), chunk,
+            ys.data() + off, sizeof(double), chunk,
             nullptr, 0, 0,
             nullptr, 0, 0);
-        if (done != n) {
+        if (done != chunk) {
             int err = proj_errno(pj);
             const char* msg = proj_errno_string(err);
             proj_errno_reset(pj);
             xsink->raiseException("PROJ-ERROR",
                 "batch inverse transform failed after %zu of %zu points: %s",
-                done, n, msg ? msg : "unknown error");
+                off + done, n, msg ? msg : "unknown error");
             return QoreValue();
         }
     }
 
     ReferenceHolder<QoreListNode> out(new QoreListNode(listTypeInfo), xsink);
     for (size_t i = 0; i < n; ++i) {
+        if ((i % PROJ_CHECK_EVERY) == 0 && i > 0
+                && qore_check_cancel(xsink, "ProjTransformer::transformInverseBatch output")) {
+            return QoreValue();
+        }
         ReferenceHolder<QoreListNode> pair(new QoreListNode(floatTypeInfo), xsink);
         pair->push(xs[i], xsink);
         pair->push(ys[i], xsink);
