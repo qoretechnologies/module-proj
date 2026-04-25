@@ -11,6 +11,40 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 find_package(Qore 0.9 REQUIRED)
 
+# Locate PROJ from the common macOS package managers, neither of which puts
+# PROJ on a default CMake/pkg-config search path:
+#   - MacPorts installs PROJ 9 under a versioned prefix (e.g. /opt/local/lib/proj9).
+#   - Homebrew keg-only installs land under <brew-prefix>/opt/proj
+#     (Apple Silicon: /opt/homebrew, Intel: /usr/local).
+# Probe each candidate and prepend it to CMAKE_PREFIX_PATH so an out-of-the-box
+# `cmake ..` works.
+if(APPLE)
+    set(_proj_candidates
+        /opt/local/lib/proj9
+        /opt/local/lib/proj8
+        /opt/local/lib/proj
+        /opt/homebrew/opt/proj
+        /usr/local/opt/proj
+    )
+    # Honor a non-default Homebrew prefix if `brew` is on PATH.
+    find_program(_brew_exe brew)
+    if(_brew_exe)
+        execute_process(COMMAND ${_brew_exe} --prefix proj
+                        OUTPUT_VARIABLE _brew_proj_prefix
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET
+                        RESULT_VARIABLE _brew_rc)
+        if(_brew_rc EQUAL 0 AND _brew_proj_prefix)
+            list(INSERT _proj_candidates 0 "${_brew_proj_prefix}")
+        endif()
+    endif()
+    foreach(_proj_prefix ${_proj_candidates})
+        if(IS_DIRECTORY "${_proj_prefix}")
+            list(APPEND CMAKE_PREFIX_PATH "${_proj_prefix}")
+        endif()
+    endforeach()
+endif()
+
 # Try PROJ's own CMake config package first (PROJ 8+). Falls back to our
 # FindPROJ.cmake which uses pkg-config (works for distro-packaged 6.x/7.x).
 find_package(PROJ CONFIG QUIET)
