@@ -37,6 +37,7 @@ public class ProjTest inherits QUnit::Test {
         # Unit tests — geodesic helpers
         addTestCase("great-circle distance (WGS84)", \distanceTests());
         addTestCase("forward / inverse azimuths", \azimuthTests());
+        addTestCase("named argument calls", \namedArgumentTests());
 
         # Corner cases
         addTestCase("batch edge cases (empty, singleton, large)", \batchEdgeCaseTests());
@@ -105,6 +106,36 @@ public class ProjTest inherits QUnit::Test {
         assertTrue(abs(lonlat[1] - WGS84_LAT) < 1e-6,
             sprintf("lat round-trips within 1e-6 (got diff %g)",
                 lonlat[1] - WGS84_LAT));
+    }
+
+    namedArgumentTests() {
+        Qore::PROJ::ProjTransformer t(source_crs: "EPSG:4326", target_crs: "EPSG:25832");
+        list<float> xy = t.transform(y: WGS84_LAT, x: WGS84_LON);
+        assertEq(2, xy.size());
+        assertTrue(abs(xy[0] - UTM32N_X) < POS_TOL,
+            sprintf("named x within %f m of %f (got %f)", POS_TOL, UTM32N_X, xy[0]));
+        assertTrue(abs(xy[1] - UTM32N_Y) < POS_TOL,
+            sprintf("named y within %f m of %f (got %f)", POS_TOL, UTM32N_Y, xy[1]));
+
+        float projected_x = xy[0];
+        float projected_y = xy[1];
+        list<float> lonlat = t.transformInverse(x: projected_x, y: projected_y);
+        assertTrue(abs(lonlat[0] - WGS84_LON) < 1e-6);
+        assertTrue(abs(lonlat[1] - WGS84_LAT) < 1e-6);
+
+        list<list<float>> batch = t.transformBatch(points: ((WGS84_LON, WGS84_LAT),));
+        assertEq(1, batch.size());
+        list<list<float>> round_trip = t.transformInverseBatch(points: batch);
+        assertTrue(abs(round_trip[0][0] - WGS84_LON) < 1e-6);
+        assertTrue(abs(round_trip[0][1] - WGS84_LAT) < 1e-6);
+
+        float distance = Qore::PROJ::great_circle_distance(
+            lon2: 13.3696, lat2: 52.5251, lon1: 11.5581, lat1: 48.1402);
+        assertTrue(distance > 500000.0 && distance < 510000.0);
+        assertTrue(Qore::PROJ::forward_azimuth(lon1: 11.5581, lat1: 48.1402,
+            lon2: 13.3696, lat2: 52.5251) > 0.0);
+        assertTrue(Qore::PROJ::inverse_azimuth(lon1: 11.5581, lat1: 48.1402,
+            lon2: 13.3696, lat2: 52.5251) < 0.0);
     }
 
     batchTests() {
