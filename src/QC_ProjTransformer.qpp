@@ -147,7 +147,7 @@ qclass ProjTransformer [arg=QoreProjTransformer* t; ns=Qore::PROJ];
 
     @throw PROJ-ERROR source or target CRS could not be resolved.
 */
-ProjTransformer::constructor(string source_crs, string target_crs, *hash<auto> options) {
+ProjTransformer::constructor(string source_crs, string target_crs, *hash<auto> options) [flags=NAMED_ARGS] {
     if (qore_check_cancel(xsink, "ProjTransformer constructor")) {
         return;
     }
@@ -175,7 +175,7 @@ ProjTransformer::constructor(string source_crs, string target_crs, *hash<auto> o
     @throw PROJ-ERROR transform failed (invalid input, out-of-range for CRS, grid-shift
     data missing, …).
 */
-list<float> ProjTransformer::transform(float x, float y) {
+list<float> ProjTransformer::transform(float x, float y) [flags=NAMED_ARGS] {
     if (qore_check_cancel(xsink, "ProjTransformer::transform")) {
         return QoreValue();
     }
@@ -206,7 +206,7 @@ list<float> ProjTransformer::transform(float x, float y) {
 
     @throw PROJ-ERROR transform failed.
 */
-list<float> ProjTransformer::transformInverse(float x, float y) {
+list<float> ProjTransformer::transformInverse(float x, float y) [flags=NAMED_ARGS] {
     if (qore_check_cancel(xsink, "ProjTransformer::transformInverse")) {
         return QoreValue();
     }
@@ -240,7 +240,7 @@ list<float> ProjTransformer::transformInverse(float x, float y) {
 
     @throw PROJ-ERROR transform failed, or an input element is not a 2-list.
 */
-list<list<float>> ProjTransformer::transformBatch(list<auto> points) {
+list<list<float>> ProjTransformer::transformBatch(list<auto> points) [flags=NAMED_ARGS] {
     if (qore_check_cancel(xsink, "ProjTransformer::transformBatch")) {
         return QoreValue();
     }
@@ -320,7 +320,7 @@ list<list<float>> ProjTransformer::transformBatch(list<auto> points) {
 
     @throw PROJ-ERROR transform failed, or an input element is not a 2-list.
 */
-list<list<float>> ProjTransformer::transformInverseBatch(list<auto> points) {
+list<list<float>> ProjTransformer::transformInverseBatch(list<auto> points) [flags=NAMED_ARGS] {
     if (qore_check_cancel(xsink, "ProjTransformer::transformInverseBatch")) {
         return QoreValue();
     }

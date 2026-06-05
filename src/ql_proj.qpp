@@ -160,7 +160,7 @@ float d = great_circle_distance(11.5581, 48.1402, 13.3696, 52.5251);
     @c proj_geod() via a @ref ProjTransformer built against the target
     geographic CRS.
 */
-float great_circle_distance(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT] {
+float great_circle_distance(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT,NAMED_ARGS] {
     double s12 = 0.0;
     geod_inverse(&wgs84_geod(), lat1, lon1, lat2, lon2, &s12, nullptr, nullptr);
     return s12;
@@ -185,7 +185,7 @@ float a = forward_azimuth(11.5581, 48.1402, 13.3696, 52.5251);
 # a ≈ 14.1
     @endcode
 */
-float forward_azimuth(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT] {
+float forward_azimuth(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT,NAMED_ARGS] {
     double azi1 = 0.0;
     geod_inverse(&wgs84_geod(), lat1, lon1, lat2, lon2, nullptr, &azi1, nullptr);
     return normalize_azimuth(azi1);
@@ -215,7 +215,7 @@ float a = inverse_azimuth(11.5581, 48.1402, 13.3696, 52.5251);
     from). This function flips it by 180° so the return value is the
     "pointing back at point 1" bearing most callers want.
 */
-float inverse_azimuth(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT] {
+float inverse_azimuth(float lon1, float lat1, float lon2, float lat2) [flags=CONSTANT,NAMED_ARGS] {
     double azi2 = 0.0;
     geod_inverse(&wgs84_geod(), lat1, lon1, lat2, lon2, nullptr, nullptr, &azi2);
     // geod_inverse returns the forward azimuth at point 2 — flip by 180°
