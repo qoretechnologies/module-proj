@@ -1,0 +1,68 @@
+Debian/Ubuntu packaging for the PROJ module
+==========================================
+
+qore-proj-module ships native PROJ and the ProjGeos source/AOT module, plus
+compiler metadata. The doc package contains both API references and example
+tests. Debhelper generates matching native/AOT debug symbols. ProjGeos needs
+the independently packaged GEOS module, declared as a build/runtime dependency.
+
+Use an isolated native build environment with the packaged Qore runtime and
+libqore-dev, then install debian/control's Build-Depends. Qualification targets
+Ubuntu 26.04 amd64 with the Qore 3.0 SDK. Other releases/architectures need
+matching SDKs and native tests. Cross builds fail explicitly because Qore tools
+run during compilation. Use distribution PROJ (>= 8.0), including proj-data;
+no bundled library or build-time network download is needed. The module disables
+PROJ network access; offline transformations use the installed coordinate database.
+
+The runtime and libqore SONAME minimum versions come from the SDK used to
+compile the module. dh_shlibdeps supplies the required native library versions.
+The runtime is not Multi-Arch: same.
+
+Build and metadata rules
+------------------------
+
+AOT is enabled, source-tree qmod symlinks are disabled and noopt selects AOT
+optimization level zero. QCC_JOBS=1 fixes codegen partitioning independently
+of CPU count and GNU make jobserver load; independent targets still compile
+in parallel. Timezone and locale are fixed. Qore tools use only this build and
+the packaged modules, including metadata extraction. Debian prefix maps also
+cover AOT compiler output.
+
+The stripping wrapper copied from Qore preserves appended dependency and
+source-location metadata; its real-ELF tests run during builds. dwz skips the
+runtime because it does not support all LLVM DWARF forms in AOT output.
+
+Source preparation and qualification
+------------------------------------
+
+Use a fresh version for each changed upload. This snapshot precedes 1.1.0.
+From a clean committed checkout:
+
+    version=1.1.0~git20260928.1
+    mkdir -p ../proj-package-work
+    git archive --format=tar --prefix="qore-proj-module-$version/" \
+        HEAD -- . ':!debian' | xz > \
+        "../proj-package-work/qore-proj-module_$version.orig.tar.xz"
+    tar -xf "../proj-package-work/qore-proj-module_$version.orig.tar.xz" \
+        -C ../proj-package-work
+    cp -a debian "../proj-package-work/qore-proj-module-$version/"
+    cd "../proj-package-work/qore-proj-module-$version"
+    dpkg-buildpackage -S -us -uc
+
+Extract the .dsc into a fresh directory and run dpkg-buildpackage -b -us -uc
+unprivileged with networking disabled. -B builds runtime/debug only; -A builds
+documentation. nodoc in DEB_BUILD_OPTIONS suppresses HTML generation, and the
+nodoc profile also omits the doc package. Do not use nocheck for the full
+qualification build; subsequent profile/reproducibility builds may use it.
+
+Run both upstream suites. Installed tests copy only test scripts into a
+temporary directory, preload the installed AOT companion and use no source
+checkout. They exercise projections, batch and inverse transforms, geodesic
+helpers, geometry topology and error recovery. A fresh qcc executable checks
+Munich WGS84-to-UTM coordinates and the inverse geometry transform.
+
+Check Lintian, hardening, matching debug symbols, AOT trailers, installed
+source parity, a runtime-only install without the SDK, docs/debug coinstallation,
+dpkg -V, purge/reinstall and reproducibility across distinct paths/job counts.
+Retain hashes, dependency inventories and logs. Testing-PPA publication is
+separate from approval for a final general release.

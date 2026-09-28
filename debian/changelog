@@ -1,0 +1,9 @@
+qore-proj-module (1.1.0~git20260928.1-0qore1~ubuntu26.04) resolute; urgency=medium
+
+  * Package native PROJ and the ProjGeos source/AOT module with metadata.
+  * Declare the GEOS dependency; include docs, examples and debug symbols.
+  * Add offline builds, reproducible profiles and installed tests.
+  * Skip the external GEOS integration test gracefully when GEOS is unavailable.
+  * Preserve isolated standard-library paths in documentation builds.
+
+ -- David Nichols <david@qore.org>  Mon, 28 Sep 2026 23:52:21 +0000

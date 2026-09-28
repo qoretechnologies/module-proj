@@ -1,0 +1,4 @@
+usr/lib/*/qore-modules/*.qmod
+usr/lib/*/qore-modules/ProjGeos/
+usr/share/qore-modules/ProjGeos/
+usr/share/qore/metadata/proj/*.meta.json

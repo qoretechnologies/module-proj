@@ -1,0 +1,41 @@
+Source: qore-proj-module
+Section: interpreters
+Priority: optional
+Maintainer: David Nichols <david@qore.org>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.5),
+               libproj-dev (>= 8.0),
+               qore-geos-module (>= 1.0.0~git20260928.1),
+               libqore-dev (>= 3.0.0~),
+               qore (>= 3.0.0~),
+               python3
+Build-Depends-Indep: doxygen <!nodoc>
+Standards-Version: 4.7.4
+Rules-Requires-Root: no
+Homepage: https://qore.org
+Vcs-Git: https://github.com/qoretechnologies/module-proj.git
+Vcs-Browser: https://github.com/qoretechnologies/module-proj
+
+Package: qore-proj-module
+Architecture: any
+Depends: qore-geos-module (>= 1.0.0~git20260928.1),
+         ${qore:Depends},
+         ${shlibs:Depends},
+         ${misc:Depends}
+Suggests: qore-proj-module-doc
+Description: coordinate transformations and GEOS integration for Qore
+ This package provides the PROJ native module and the ProjGeos source and
+ compiled module for coordinate reference systems, batch transformations,
+ geodesic calculations and geometry reprojection. Compiler metadata is
+ included. It uses the distribution PROJ library and coordinate database.
+
+Package: qore-proj-module-doc
+Section: doc
+Architecture: all
+Multi-Arch: foreign
+Build-Profiles: <!nodoc>
+Depends: ${misc:Depends}
+Suggests: qore-proj-module
+Description: documentation and examples for Qore's PROJ modules
+ This package contains HTML API references and example tests for the proj
+ native module and ProjGeos.

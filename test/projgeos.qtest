@@ -1,13 +1,33 @@
 #!/usr/bin/env qore
 # -*- mode: qore; indent-tabs-mode: nil -*-
+# Copyright (C) 2026 Qore Technologies, s.r.o.
+# SPDX-License-Identifier: MIT
 
 %modern
-%enable-all-warnings
-%requires ProjGeos
+%prepend-module-path ../qlib
 %requires QUnit
+%try-module geos
+%define NoGeos
+%endtry
+
+%ifndef NoGeos
+%requires ProjGeos
+%endif
 
 %exec-class ProjGeosTest
 
+%ifdef NoGeos
+public class ProjGeosTest inherits QUnit::Test {
+    constructor() : Test("ProjGeosTest", "1.1") {
+        addTestCase("GEOS integration", \missingGeos());
+        set_return_value(main());
+    }
+
+    private missingGeos() {
+        testSkip("geos module is unavailable");
+    }
+}
+%else
 public class ProjGeosTest inherits QUnit::Test {
     private {
         # Munich Hbf, same reference point as proj.qtest.
@@ -216,3 +236,5 @@ public class ProjGeosTest inherits QUnit::Test {
         }
     }
 }
+
+%endif

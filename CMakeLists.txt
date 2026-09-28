@@ -9,6 +9,13 @@ set(VERSION_PATCH 0)
 # where to look first for cmake modules, before ${CMAKE_ROOT}/Modules/ is checked
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
+# Set this before loading Qore's macros so qdx and qjar use the same paths.
+# Preserve caller-supplied standard-library paths for QORE_MODULE_DIR_ONLY builds.
+set(QORE_MODULE_DIR_FOR_DOCS "${CMAKE_BINARY_DIR}:${CMAKE_BINARY_DIR}/qlib-qmod:${CMAKE_SOURCE_DIR}/qlib")
+if(DEFINED ENV{QORE_MODULE_DIR} AND NOT "$ENV{QORE_MODULE_DIR}" STREQUAL "")
+    string(APPEND QORE_MODULE_DIR_FOR_DOCS ":$ENV{QORE_MODULE_DIR}")
+endif()
+
 find_package(Qore 0.9 REQUIRED)
 
 # Locate PROJ from the common macOS package managers, neither of which puts
@@ -56,9 +63,6 @@ else()
     include_directories(${PROJ_INCLUDE_DIR})
     set(PROJ_LIBRARY ${PROJ_LIBRARY})
 endif()
-
-# ensure qdx can find the proj binary module and user modules when processing .qc files
-set(QORE_MODULE_DIR_FOR_DOCS "${CMAKE_BINARY_DIR}:${CMAKE_SOURCE_DIR}/qlib")
 
 include_directories(${CMAKE_SOURCE_DIR}/src)
 
