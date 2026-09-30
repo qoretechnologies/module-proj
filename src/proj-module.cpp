@@ -75,7 +75,8 @@ const TypedHashDecl* hashdeclProjVersionInfo = nullptr;
 // DEFINED by qpp in the generated QC_ProjTransformer.cpp — do not declare them
 // here or the link step produces duplicate-symbol errors.
 
-QoreNamespace PNS("Qore::PROJ");
+// Keep the namespace private: other modules (including Python) use PNS too.
+static QoreNamespace PNS("Qore::PROJ");
 
 static void proj_module_init(QoreModuleInitContext& ctx, ExceptionSink& xsink) {
     // hashdecls first (referenced by functions below)

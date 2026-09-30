@@ -3,6 +3,8 @@
     @tableofcontents
 
     @section proj_1_1 proj Module Version 1.1
+    - Fixed a native symbol collision that caused crashes when PROJ and Python
+      were loaded in the same process.
     - The GEOS integration test skips gracefully if the external geos module is unavailable.
     - Documentation builds preserve configured module paths for isolated module lookup.
     - @ref Qore::PROJ::ProjTransformer::transformInverseBatch()

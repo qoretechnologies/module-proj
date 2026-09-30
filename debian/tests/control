@@ -5,3 +5,7 @@ Restrictions: allow-stderr
 
 Tests: compiler
 Depends: qore-proj-module, libqore-dev
+
+Tests: python-coexistence
+Depends: qore-proj-module, qore-python-module
+Restrictions: allow-stderr

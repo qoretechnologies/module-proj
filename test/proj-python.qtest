@@ -1,0 +1,41 @@
+#!/usr/bin/env qore
+# Copyright (C) 2026 Qore Technologies, s.r.o.
+# SPDX-License-Identifier: MIT
+
+%modern
+%prepend-module-path ../build
+%requires QUnit
+
+# Exercise both startup orders in separate processes with -DPythonFirst.
+%ifdef PythonFirst
+%try-module python
+%define NoPython
+%endtry
+%requires proj
+%else
+%requires proj
+%try-module python
+%define NoPython
+%endtry
+%endif
+
+%exec-class ProjPythonTest
+
+class ProjPythonTest inherits QUnit::Test {
+    constructor() : Test("ProjPythonTest", "1.1") {
+        addTestCase("PROJ and Python namespace isolation", \coexistence());
+        set_return_value(main());
+    }
+
+    private coexistence() {
+%ifdef NoPython
+        testSkip("python module is unavailable");
+%else
+        Python::PythonProgram python("def answer():\n    return 42\n", "proj-python-test");
+        assertEq(42, python.callFunction("answer"));
+        assertTrue(Qore::PROJ::proj_version() != "");
+        Qore::PROJ::ProjTransformer transformer("EPSG:4326", "EPSG:4326");
+        assertEq((12.0, 48.0), transformer.transform(12.0, 48.0));
+%endif
+    }
+}

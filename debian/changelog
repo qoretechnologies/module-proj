@@ -1,3 +1,14 @@
+qore-proj-module (1.1.0~git20260930.1-0qore1~ubuntu26.04) resolute; urgency=medium
+
+  * Make the native namespace private to prevent symbol interposition with
+    Python and other modules.
+  * Test Python coexistence in both module load orders, with graceful skips
+    when Python is unavailable outside the installed interoperability test.
+  * Document the ProjGeos namespace so its API appears in generated reference
+    pages, and correct its qualified names in examples and links.
+
+ -- David Nichols <david@qore.org>  Wed, 30 Sep 2026 09:03:00 +0200
+
 qore-proj-module (1.1.0~git20260928.1-0qore1~ubuntu26.04) resolute; urgency=medium
 
   * Package native PROJ and the ProjGeos source/AOT module with metadata.
