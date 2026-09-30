@@ -49,8 +49,12 @@ cd ${MODULE_SRC_DIR}
 for test in test/*.qtest; do
     gosu qore:qore qore --enable-debug $test -vv
 done
+# The reverse order needs a fresh interpreter before either module is loaded.
+gosu qore:qore qore --enable-debug -DPythonFirst test/proj-python.qtest -vv
 
-# run valgrind
-for test in test/*.qtest; do
+# Memory-check the PROJ and GEOS suites. Python coexistence runs above in both
+# orders; CPython/JIT allocator and shutdown reports require Python's own
+# memory-check environment and must not be suppressed by PROJ's rules.
+for test in test/proj.qtest test/projgeos.qtest; do
     gosu qore:qore valgrind --error-exitcode=1 --leak-check=full --suppressions=${MODULE_SRC_DIR}/test/proj.supp qore -b --enable-debug $test -vv
 done

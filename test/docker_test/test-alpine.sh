@@ -52,3 +52,5 @@ cd ${MODULE_SRC_DIR}
 for test in test/*.qtest; do
     gosu qore:qore qore --enable-debug $test -vv
 done
+# The reverse order needs a fresh interpreter before either module is loaded.
+gosu qore:qore qore --enable-debug -DPythonFirst test/proj-python.qtest -vv
