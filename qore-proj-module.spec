@@ -29,7 +29,11 @@ BuildRequires: qore-rpm-macros >= 3.0.0~
 %if %{with docs}
 BuildRequires: doxygen
 BuildRequires: qore-geos-module-doc >= 1.0.0-2
-BuildRequires: /usr/bin/hardlink
+%if 0%{?suse_version}
+BuildRequires: util-linux
+%else
+BuildRequires: util-linux-core
+%endif
 %endif
 %{?qore_enable_aot_post}
 
