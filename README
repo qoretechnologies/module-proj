@@ -41,3 +41,15 @@ BUILD
 
 Requires a Qore development installation (qore-config, qpp) and PROJ
 development files.
+
+DOCUMENTATION CROSS-REFERENCES
+-----------------------------
+Install the GEOS module documentation package to resolve ProjGeos API links.
+Its geos.tag index is discovered under the installation data directory in
+qore/tags. For a separate documentation tree, configure both locations:
+
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+      -DGEOS_DOXYGEN_TAGFILE=/path/to/geos.tag \
+      -DGEOS_DOXYGEN_TAG_URL=../../geos/html
+
+The URL is relative to the generated ProjGeos HTML directory.

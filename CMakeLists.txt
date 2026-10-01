@@ -88,7 +88,7 @@ else()
     message(FATAL_ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++17 support. Please use a different C++ compiler.")
 endif()
 
-qore_wrap_qpp_value(QPP_SOURCES METALIST QPP_META_SOURCES ${QPP_SRC})
+qore_wrap_qpp_value(QPP_SOURCES DOXLIST QPP_DOX_SOURCES METALIST QPP_META_SOURCES ${QPP_SRC})
 
 set(module_name "proj")
 
@@ -107,6 +107,9 @@ if(DEFINED ENV{DOXYGEN_EXECUTABLE})
     set(DOXYGEN_EXECUTABLE $ENV{DOXYGEN_EXECUTABLE})
 endif()
 
+# Document the Qore-facing declarations, not private C++ implementation bodies.
+set(MODULE_DOX_INPUT ${CMAKE_BINARY_DIR}/mainpage.dox
+    ${CMAKE_BINARY_DIR}/release-notes.dox ${QPP_DOX_SOURCES})
 qore_external_binary_module(${module_name} "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}" ${PROJ_LIBRARY})
 
 if(COMMAND qore_install_qpp_metadata)
@@ -119,6 +122,19 @@ endif()
 qore_user_modules("${QMOD}")
 
 qore_external_user_module("qlib/ProjGeos" "")
+
+# ProjGeos references symbols in a separately packaged native module. Doxygen
+# needs its exported index in addition to Qore's language and this module's tags.
+if(DOXYGEN_FOUND)
+    find_file(GEOS_DOXYGEN_TAGFILE geos.tag
+        HINTS "${CMAKE_INSTALL_FULL_DATADIR}/qore/tags")
+    set(GEOS_DOXYGEN_TAG_URL "../../geos/html" CACHE STRING
+        "URL or relative HTML directory for the GEOS documentation index")
+    if(GEOS_DOXYGEN_TAGFILE)
+        file(APPEND "${MOD_DOXYFILE}"
+            "\nTAGFILES += \"${GEOS_DOXYGEN_TAGFILE}=${GEOS_DOXYGEN_TAG_URL}\"\n")
+    endif()
+endif()
 
 qore_dist("${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
 
