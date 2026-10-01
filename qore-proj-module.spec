@@ -12,7 +12,7 @@
 %bcond_without docs
 Name: qore-proj-module
 Version: 1.1.0
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Coordinate transformations and geometry projection for Qore
 License: MIT
 URL: https://github.com/qoretechnologies/module-proj
@@ -22,6 +22,14 @@ BuildRequires: cmake >= 3.21
 BuildRequires: make
 BuildRequires: gcc-c++
 BuildRequires: pkgconfig(proj) >= 8.0
+# The CRS database is required for EPSG lookups, not only the shared library.
+%if 0%{?suse_version}
+BuildRequires: proj
+Requires: proj
+%else
+BuildRequires: proj-data
+Requires: proj-data
+%endif
 BuildRequires: qore-geos-module >= 1.0.0
 Requires: qore-geos-module%{?_isa} >= 1.0.0
 BuildRequires: qore-devel >= 3.0.0~
@@ -105,5 +113,8 @@ done
 %doc %{_docdir}/%{name}-doc/
 %endif
 %changelog
+* Thu Oct 01 2026 David Nichols <david@qore.org> - 1.1.0-2
+- Require the distribution CRS database for build tests and installed transforms.
+
 * Thu Oct 01 2026 David Nichols <david@qore.org> - 1.1.0-1
 - Package coordinate transformations and GEOS integration with offline tests.

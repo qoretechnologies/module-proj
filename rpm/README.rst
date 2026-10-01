@@ -31,3 +31,8 @@ information. RPM post-processing preserves the AOT dependency trailers.
 ProjGeos requires the GEOS module at build and run time. The default checks
 exercise native and AOT APIs; the optional Python interoperability case also
 runs when that module is installed and reports an explicit skip otherwise.
+
+EPSG transforms require the PROJ CRS database in addition to its shared library.
+The RPM depends on ``proj`` on openSUSE and ``proj-data`` on Fedora and
+Enterprise Linux, both during the build and at runtime. Minimal installations
+therefore retain the same coordinate-system lookup support as the build tests.
