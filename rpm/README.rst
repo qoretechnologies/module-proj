@@ -42,3 +42,7 @@ file from ``qore-geos-module-doc``. This expresses the required feature without
 comparing distribution release suffixes, which OBS rewrites. OBS projects must
 map this file with ``FileProvides: /usr/share/qore/tags/geos.tag qore-geos-module-doc``
 because their dependency solver does not import complete RPM file lists.
+
+The file BuildRequires uses the literal system path. OBS resolves build dependencies
+before the build root exists and does not expand ``%{_datadir}`` there. The
+installed documentation remains under the usual RPM data-directory macro.
