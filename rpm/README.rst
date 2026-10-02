@@ -36,3 +36,9 @@ EPSG transforms require the PROJ CRS database in addition to its shared library.
 The RPM depends on ``proj`` on openSUSE and ``proj-data`` on Fedora and
 Enterprise Linux, both during the build and at runtime. Minimal installations
 therefore retain the same coordinate-system lookup support as the build tests.
+
+Documentation builds require the exported ``/usr/share/qore/tags/geos.tag``
+file from ``qore-geos-module-doc``. This expresses the required feature without
+comparing distribution release suffixes, which OBS rewrites. OBS projects must
+map this file with ``FileProvides: /usr/share/qore/tags/geos.tag qore-geos-module-doc``
+because their dependency solver does not import complete RPM file lists.

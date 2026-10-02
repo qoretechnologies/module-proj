@@ -12,7 +12,7 @@
 %bcond_without docs
 Name: qore-proj-module
 Version: 1.1.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Coordinate transformations and geometry projection for Qore
 License: MIT
 URL: https://github.com/qoretechnologies/module-proj
@@ -36,7 +36,9 @@ BuildRequires: qore-devel >= 3.0.0~
 BuildRequires: qore-rpm-macros >= 3.0.0~
 %if %{with docs}
 BuildRequires: doxygen
-BuildRequires: qore-geos-module-doc >= 1.0.0-2
+BuildRequires: qore-geos-module-doc >= 1.0.0
+# Require the exported index itself; OBS rewrites distribution release suffixes.
+BuildRequires: %{_datadir}/qore/tags/geos.tag
 %if 0%{?suse_version}
 BuildRequires: util-linux
 %else
@@ -54,7 +56,7 @@ coordinate database and PROJ library.
 %package doc
 Summary: PROJ module reference documentation
 BuildArch: noarch
-Requires: qore-geos-module-doc >= 1.0.0-2
+Requires: qore-geos-module-doc >= 1.0.0
 %description doc
 API reference and examples for Qore's PROJ module.
 %endif
@@ -113,6 +115,9 @@ done
 %doc %{_docdir}/%{name}-doc/
 %endif
 %changelog
+* Fri Oct 02 2026 David Nichols <david@qore.org> - 1.1.0-3
+- Require the exported GEOS documentation index independently of release suffixes.
+
 * Thu Oct 01 2026 David Nichols <david@qore.org> - 1.1.0-2
 - Require the distribution CRS database for build tests and installed transforms.
 
