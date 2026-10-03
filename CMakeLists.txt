@@ -138,7 +138,7 @@ qore_external_user_module("qlib/ProjGeos" "")
 if(DOXYGEN_FOUND)
     find_file(GEOS_DOXYGEN_TAGFILE geos.tag
         HINTS "${QORE_DOXYGEN_MODULE_TAG_DIR}" "${CMAKE_INSTALL_FULL_DATADIR}/qore/tags")
-    set(GEOS_DOXYGEN_TAG_URL "../../geos/html" CACHE STRING
+    set(GEOS_DOXYGEN_TAG_URL "https://docs.qore.org/current/modules/geos/html" CACHE STRING
         "URL or relative HTML directory for the GEOS documentation index")
     if(GEOS_DOXYGEN_TAGFILE)
         file(APPEND "${MOD_DOXYFILE}"
