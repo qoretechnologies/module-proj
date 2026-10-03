@@ -77,7 +77,7 @@ Qore::GEOS::GEOSGeometry utm_line = ProjGeos::transform_geometry(t, wgs84_line);
     @section projgeosrelease Release History
 
     @subsection projgeos_1_1 ProjGeos Module Version 1.1
-    - initial release alongside proj 1.1
+    - initial release
 */
 
 #! Geometry reprojection helpers combining PROJ transformations with GEOS geometries.
