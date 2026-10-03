@@ -1,0 +1,27 @@
+/* Copyright (C) 2026 Qore Technologies, s.r.o. */
+
+/** @page projapiguide proj Module API
+
+    @tableofcontents
+
+    Main classes:
+    - @ref Qore::PROJ::ProjTransformer "ProjTransformer" — a transformer
+      between two CRSs; forward and inverse transforms for single points
+      and batches.
+
+    Standalone functions:
+    - @ref Qore::PROJ::proj_version() "proj_version()" — PROJ version string
+    - @ref Qore::PROJ::get_proj_info() "get_proj_info()" — structured version info
+    - @ref Qore::PROJ::great_circle_distance() "great_circle_distance()" — geodesic distance on the WGS84 ellipsoid (metres)
+    - @ref Qore::PROJ::forward_azimuth() "forward_azimuth()" — initial bearing from point 1 toward point 2
+    - @ref Qore::PROJ::inverse_azimuth() "inverse_azimuth()" — back-bearing at point 2 toward point 1
+
+    Companion user module (shipped in the same repo):
+    - @ref projgeosintro "ProjGeos" — `transform_geometry()` and
+      `transform_geometry_inverse()` project every vertex of a
+      @c GEOSGeometry through a @ref Qore::PROJ::ProjTransformer
+      "ProjTransformer". Implemented on top of
+      @c GEOSGeometry::transformXY() so there is no C-level coupling
+      between @c module-proj and @c module-geos — load the user module
+      only when you need interop.
+*/

@@ -1,0 +1,12 @@
+/* Copyright (C) 2026 Qore Technologies, s.r.o. */
+
+/** @page projthreadguide Thread safety
+
+    @tableofcontents
+
+    A @ref Qore::PROJ::ProjTransformer "ProjTransformer" object is safe
+    to share across threads. Internally, the module creates a separate
+    @c PJ_CONTEXT per thread and a separate @c PJ* per (transformer,
+    thread) pair. PROJ itself requires each @c PJ to be used only with
+    the context it was created under.
+*/

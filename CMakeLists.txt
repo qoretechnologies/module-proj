@@ -95,6 +95,10 @@ set(module_name "proj")
 set(QORE_DOX_TMPL_SRC
     docs/mainpage.doxygen.tmpl
     docs/release-notes.doxygen.tmpl
+    docs/guide-projapi.dox.tmpl
+    docs/guide-projbusinessusecases.dox.tmpl
+    docs/guide-projthread.dox.tmpl
+    docs/guide-projusage.dox.tmpl
 )
 
 add_library(${module_name} MODULE ${CPP_SRC} ${QPP_SOURCES})
@@ -110,6 +114,12 @@ endif()
 # Document the Qore-facing declarations, not private C++ implementation bodies.
 set(MODULE_DOX_INPUT ${CMAKE_BINARY_DIR}/mainpage.dox
     ${CMAKE_BINARY_DIR}/release-notes.dox ${QPP_DOX_SOURCES})
+list(APPEND MODULE_DOX_INPUT
+    ${CMAKE_CURRENT_BINARY_DIR}/guide-projapi.dox
+    ${CMAKE_CURRENT_BINARY_DIR}/guide-projbusinessusecases.dox
+    ${CMAKE_CURRENT_BINARY_DIR}/guide-projthread.dox
+    ${CMAKE_CURRENT_BINARY_DIR}/guide-projusage.dox
+)
 qore_external_binary_module(${module_name} "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}" ${PROJ_LIBRARY})
 
 if(COMMAND qore_install_qpp_metadata)
