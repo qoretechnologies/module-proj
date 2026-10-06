@@ -53,3 +53,18 @@ qore/tags. For a separate documentation tree, configure both locations:
       -DGEOS_DOXYGEN_TAG_URL=../../geos/html
 
 The URL is relative to the generated ProjGeos HTML directory.
+
+UNINSTALL
+---------
+The configured build provides an uninstall target that removes files listed in
+its install_manifest.txt. Run it from the same build directory used to install:
+
+    cmake --build build --target uninstall
+
+For a staged installation, pass the same DESTDIR used during installation:
+
+    DESTDIR=/path/to/stage cmake --build build --target uninstall
+
+The target leaves directories and unrelated files intact. It rejects a missing
+manifest or an unexpected directory entry and reports removal failures. CMake
+policies through version 3.31 are enabled, including normalized install paths.
