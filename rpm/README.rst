@@ -46,3 +46,26 @@ because their dependency solver does not import complete RPM file lists.
 The file BuildRequires uses the literal system path. OBS resolves build dependencies
 before the build root exists and does not expand ``%{_datadir}`` there. The
 installed documentation remains under the usual RPM data-directory macro.
+
+Release 5 uses CMake policies through 3.31, provides the standard manifest-based
+uninstall target, and tests staged removal, missing manifests, directories and
+dangling symlinks. Module paths come from the Qore SDK; unused CMAKE_INSTALL_LIBDIR
+and FetchContent options are omitted. Optional Java generation is disabled
+because these RPMs ship no Java artifact. Native, AOT and documentation builds
+remain enabled with normal compiler flags.
+
+AOT debugger compatibility
+--------------------------
+
+RPMs retain full DWARF, debug source and Qore compiler metadata. They omit
+LLVM's optional precomputed name index, which distribution GDB ignores and
+debugedit cannot process. This uses the configuration approved on 2026-10-06;
+initial debugger loading may be slower. Leap requires debugedit 5.1 for the
+remaining DWARF forms. Package checks verify metadata and separate debug links;
+paired controls verify all other DWARF sections and symbols remain identical.
+
+The four deliberate invalid-CRS cases retain PROJ's three exact stderr messages
+for an unknown EPSG code, an unknown projection and an empty CRS. These were
+approved on 2026-10-06 after standalone controls verified rejection, recovery
+and zero Valgrind errors or retained allocations on all three distributions.
+Other diagnostics remain qualification failures.

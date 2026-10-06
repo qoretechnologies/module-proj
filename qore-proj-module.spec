@@ -12,7 +12,7 @@
 %bcond_without docs
 Name: qore-proj-module
 Version: 1.1.0
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Coordinate transformations and geometry projection for Qore
 License: MIT
 URL: https://github.com/qoretechnologies/module-proj
@@ -21,6 +21,11 @@ Source0: %{name}-%{version}.tar.xz
 BuildRequires: cmake >= 3.21
 BuildRequires: make
 BuildRequires: gcc-c++
+BuildRequires: binutils
+BuildRequires: python3
+%if 0%{?suse_version}
+BuildRequires: debugedit >= 5.1
+%endif
 BuildRequires: pkgconfig(proj) >= 8.0
 # The CRS database is required for EPSG lookups, not only the shared library.
 %if 0%{?suse_version}
@@ -44,6 +49,8 @@ BuildRequires: util-linux
 %else
 BuildRequires: util-linux-core
 %endif
+%endif
+%if %{with tests}
 %endif
 %{?qore_enable_aot_post}
 
@@ -69,13 +76,13 @@ API reference and examples for Qore's PROJ module.
 qore_set_source_prefix_maps "%{qore_debug_source_dir}"
 cmake -S . -B build -G 'Unix Makefiles' \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE=-DNDEBUG \
-  -DCMAKE_INSTALL_PREFIX=%{_prefix} -DCMAKE_INSTALL_LIBDIR=%{_lib} \
+  -DCMAKE_INSTALL_PREFIX=%{_prefix} \
   -DCMAKE_SKIP_RPATH=ON -DCMAKE_IGNORE_PREFIX_PATH=/usr/local \
   -DQore_DIR=%{_libdir}/cmake/Qore -DQORE_EXECUTABLE=/usr/bin/qore \
   -DQORE_QPP_EXECUTABLE=/usr/bin/qpp -DQORE_QCC_EXECUTABLE=/usr/bin/qcc \
-  -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
   -DGEOS_DOXYGEN_TAGFILE:FILEPATH=%{_datadir}/qore/tags/geos.tag \
   -DGEOS_DOXYGEN_TAG_URL:STRING=../../../../qore-geos-module-doc/docs/geos/html \
+  -DQORE_GENERATE_JAVA_BINDINGS=OFF \
   -DQORE_BUILD_AOT_MODULES=ON -DQORE_AOT_LINK_SOURCE_MODULES=OFF \
   -DQORE_QM_METADATA_ENV:STRING="QORE_MODULE_DIR=$QORE_MODULE_DIR:$PWD/qlib;QORE_MODULE_DIR_ONLY=1;QORE_INCLUDE_DIR=;LD_LIBRARY_PATH=" \
   -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=%{!?with_docs:ON}%{?with_docs:OFF}
@@ -87,6 +94,9 @@ cmake --build build --target docs -- %{?_smp_mflags}
 DESTDIR=%{buildroot} cmake --install build
 %qore_install_aot_sources qlib
 find %{buildroot}%{_libdir}/qore-modules -type f -name '*.qmod' -exec chmod 755 {} +
+# Retain full DWARF and source; distribution GDB ignores LLVM's optional index.
+python3 %{qore_rpm_helper} %{buildroot} objcopy --remove-section=.debug_names \
+  %{buildroot}%{_libdir}/qore-modules/ProjGeos/ProjGeos.qmod
 %if %{with docs}
 install -d %{buildroot}%{_docdir}/%{name}-doc
 cp -a build/docs %{buildroot}%{_docdir}/%{name}-doc/
@@ -94,6 +104,21 @@ hardlink -t -O %{buildroot}%{_docdir}/%{name}-doc
 %endif
 %check
 %if %{with tests}
+python3 -B -W error - <<'PYTHON'
+import importlib.util
+from pathlib import Path
+import subprocess
+spec = importlib.util.spec_from_file_location('aot', '%{qore_rpm_helper}')
+aot = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(aot)
+for relative in ['ProjGeos/ProjGeos.qmod']:
+    binary = Path('%{buildroot}%{_libdir}/qore-modules') / relative
+    assert b'QAMD' in aot.read_trailers(binary), 'AOT metadata lost during RPM processing'
+    sections = subprocess.check_output(['readelf', '-SW', str(binary)], text=True)
+    assert '.gnu_debuglink' in sections, 'Missing separate AOT debug information'
+    assert '.debug_names' not in sections and '.debug_info' not in sections
+PYTHON
+python3 -B -W error test/test_uninstall.py -v
 . %{_rpmconfigdir}/qore/module-env.sh
 for test in test/*.qtest; do
   timeout 180 /usr/bin/qore -b --enable-debug \
@@ -115,6 +140,11 @@ done
 %doc %{_docdir}/%{name}-doc/
 %endif
 %changelog
+* Tue Oct 06 2026 David Nichols <david@qore.org> - 1.1.0-5
+- Validate modern install policies and provide the manifest-based uninstall target.
+- Remove unused configure options and unshipped optional Java generation.
+- Preserve full AOT debugging without unsupported optional LLVM name indexes.
+
 * Fri Oct 02 2026 Qore Technologies <info@qoretechnologies.com> - 1.1.0-4
 - Use an absolute file build dependency supported by the OBS spec parser.
 
