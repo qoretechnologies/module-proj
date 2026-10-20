@@ -29,6 +29,9 @@ export MAKE_JOBS=4
 apt-get update
 apt-get install -y libproj-dev valgrind
 
+# the tests must load the modules of this tree: reject relative module paths in them
+${MODULE_SRC_DIR}/test/docker_test/check-module-paths.sh
+
 # build module and install
 echo && echo "-- building module --"
 mkdir -p ${MODULE_SRC_DIR}/build

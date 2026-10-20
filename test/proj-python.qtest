@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 %modern
-%prepend-module-path ../build
+%prepend-module-path "${SCRIPT_DIR}/../build"
 %requires QUnit
 
 # Exercise both startup orders in separate processes with -DPythonFirst.
