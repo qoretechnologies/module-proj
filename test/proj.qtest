@@ -3,6 +3,7 @@
 
 %modern
 %enable-all-warnings
+%prepend-module-path "${SCRIPT_DIR}/../build"
 %requires proj
 %requires QUnit
 
