@@ -31,6 +31,10 @@ static void proj_module_init(QoreModuleInitContext& ctx, ExceptionSink& xsink);
 static void proj_module_ns_init(QoreNamespace* rns, QoreNamespace* qns, ExceptionSink& xsink);
 static void proj_module_delete();
 
+// the module's namespace; purged when the module is deleted (see QoreModuleInfo::ns)
+// Keep the namespace private: other modules (including Python) use PNS too.
+static QoreNamespace PNS("Qore::PROJ");
+
 extern "C" DLLEXPORT void proj_qore_module_desc(QoreModuleInfo& mod_info) {
     mod_info.name = "proj";
     mod_info.version = PACKAGE_VERSION;
@@ -42,6 +46,10 @@ extern "C" DLLEXPORT void proj_qore_module_desc(QoreModuleInfo& mod_info) {
     mod_info.init = proj_module_init;
     mod_info.ns_init = proj_module_ns_init;
     mod_info.del = proj_module_delete;
+#ifdef QORE_HAS_MODULE_NS_PURGE
+    // the namespace is purged when the module is deleted, before the types are freed (see QoreModuleInfo::ns)
+    mod_info.ns = &PNS;
+#endif
     mod_info.license = QL_MIT;
     mod_info.license_str = "MIT";
 }
@@ -74,9 +82,6 @@ const TypedHashDecl* hashdeclProjVersionInfo = nullptr;
 // NOTE: the class pointer QC_PROJTRANSFORMER and id CID_PROJTRANSFORMER are
 // DEFINED by qpp in the generated QC_ProjTransformer.cpp — do not declare them
 // here or the link step produces duplicate-symbol errors.
-
-// Keep the namespace private: other modules (including Python) use PNS too.
-static QoreNamespace PNS("Qore::PROJ");
 
 static void proj_module_init(QoreModuleInitContext& ctx, ExceptionSink& xsink) {
     // hashdecls first (referenced by functions below)
