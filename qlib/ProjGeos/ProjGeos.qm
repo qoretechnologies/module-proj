@@ -41,7 +41,7 @@ module ProjGeos {
 
     @tableofcontents
 
-    @section projgeosintro Introduction
+    @section projgeosintro ProjGeos Module Introduction
 
     The %ProjGeos module is a thin Qore-level helper that bridges the
     @ref Qore::PROJ "proj" module's coordinate transforms with the
@@ -74,9 +74,14 @@ Qore::GEOS::GEOSGeometry utm_line = ProjGeos::transform_geometry(t, wgs84_line);
     calling @ref Qore::PROJ::ProjTransformer::transformBatch()
     "transformBatch()" once, and rebuilding the geometry in your own code.
 
-    @section projgeosrelease Release History
+    @anchor projgeosrelease
 
-    @subsection projgeos_1_1 ProjGeos Module Version 1.1
+    @subpage projgeosreleasenotes
+*/
+
+/** @page projgeosreleasenotes ProjGeos Release Notes
+
+    @section projgeos_1_1 ProjGeos Module Version 1.1
     - initial release
 */
 
